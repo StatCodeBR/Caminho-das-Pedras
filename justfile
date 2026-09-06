@@ -6,10 +6,7 @@ default:
 setup:
     cd pipeline && uv sync
     cd api && uv sync
-    cd web && npm install
-
-web:
-    cd web && pnpm dev
+    cd web && pnpm install
 
 # --- desenvolvimento -----------------------------------------------------
 
@@ -20,7 +17,7 @@ api-stub:
     cd api && MODO_STUB=1 uv run uvicorn app.main:app --reload --reload-dir app --port 8000
 
 web:
-    cd web && npm run dev
+    cd web && pnpm dev
 
 # --- pipeline ------------------------------------------------------------
 
@@ -42,7 +39,7 @@ avalia:
     cd pipeline && uv run python avalia.py
 
 spec:
-    openspec validate --strict
+    openspec validate --changes --strict
 
 paridade:
     docker compose -f compose.dev.yml up --build
