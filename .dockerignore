@@ -1,0 +1,14 @@
+.venv/
+**/.venv/
+node_modules/
+**/node_modules/
+.npm/
+.direnv/
+.git/
+result
+result-*
+__pycache__/
+*.pyc
+pipeline/bruto/
+pipeline/cache/
+openspec/
