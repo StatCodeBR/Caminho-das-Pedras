@@ -1,6 +1,13 @@
 # Catálogo normalizado
 
-## ADDED Requirements
+## Purpose
+
+Transformar o JSONL fiel à API em um banco consultável, tolerando a
+irregularidade do metadado público: o que não passa na validação vai para
+quarentena com o motivo, e a ingestão segue. É a base tabular sobre a qual o
+enriquecimento, os índices e a busca trabalham.
+
+## Requirements
 
 ### Requirement: Esquema relacional de conjuntos e recursos
 
@@ -55,19 +62,22 @@ Registros que falharem na validação SHALL ser gravados em
 
 ### Requirement: Normalização de datas e formatos
 
-O pipeline SHALL converter todas as datas para UTC em ISO 8601 e SHALL
-normalizar o campo de formato dos recursos para maiúsculas sem espaços.
+O pipeline SHALL gravar todas as datas em ISO 8601 marcadas como UTC, sem
+deslocar o instante quando a origem não declara fuso, e SHALL normalizar o
+campo de formato dos recursos para maiúsculas, sem espaço sobrando nem ponto
+inicial.
 
-#### Scenario: data em fuso local
+#### Scenario: data sem fuso declarado
 
-- **WHEN** a API fornece uma data com deslocamento de fuso
-- **THEN** o valor gravado está em UTC
-- **AND** conserva a informação de instante original
+- **WHEN** a API fornece uma data sem deslocamento de fuso
+- **THEN** o instante gravado é idêntico ao da origem
+- **AND** o valor é marcado como UTC em ISO 8601
 
 #### Scenario: formato escrito de maneiras diferentes
 
 - **WHEN** recursos declaram formato como `csv`, `CSV ` ou `.csv`
 - **THEN** todos são gravados como `CSV`
+- **AND** o espaço interno de um formato como `ZIP SHP` é preservado
 
 #### Scenario: data irrecuperável
 
