@@ -23,14 +23,28 @@ reexecutadas sem novas chamadas ao servidor da CGU.
 ### Requirement: Percurso completo do catálogo
 
 O pipeline SHALL percorrer todas as páginas do endpoint de conjuntos de dados
-até a API sinalizar o fim da listagem.
+até confirmar o fim da listagem. Como a API responde com página vazia de forma
+intermitente, o pipeline SHALL tratar página vazia como sinal ambíguo e SHALL
+confirmá-lo antes de encerrar.
 
 #### Scenario: listagem paginada até o fim
 
 - **WHEN** a coleta é executada sem limite
 - **THEN** as páginas são requisitadas em sequência crescente
-- **AND** a coleta termina quando a API retorna uma página vazia
 - **AND** o total de conjuntos gravados é registrado no log final
+
+#### Scenario: página incompleta encerra a listagem
+
+- **WHEN** uma página retorna menos itens que o tamanho de página da API
+- **THEN** os itens são gravados normalmente
+- **AND** a coleta encerra sem pedir a página seguinte
+
+#### Scenario: página vazia é confirmada antes de encerrar
+
+- **WHEN** uma página retorna vazia
+- **THEN** a mesma página é repetida até 6 vezes com recuo
+- **AND** a coleta prossegue se qualquer repetição trouxer itens
+- **AND** o fim só é declarado quando a página seguinte também vier vazia
 
 #### Scenario: detalhamento dos recursos
 
@@ -58,14 +72,24 @@ confirmada quando reexecutado, sem duplicar registros já gravados.
 ### Requirement: Amostra dirigida de desenvolvimento
 
 O pipeline SHALL aceitar `--limite N` para coletar no máximo N conjuntos, e
-SHALL sempre incluir os identificadores listados em `pipeline/sementes.txt`
-quando esse arquivo existir.
+SHALL sempre incluir os conjuntos identificados em `pipeline/sementes.txt`
+quando esse arquivo existir. Cada linha é um identificador do portal — o slug
+que aparece na URL do conjunto ou o UUID — resolvido diretamente no endpoint
+de detalhe, sem passar pela busca.
 
 #### Scenario: amostra pequena com sementes garantidas
 
-- **WHEN** a coleta é executada com `--limite 500`
-- **THEN** no máximo 500 conjuntos são gravados
-- **AND** todos os identificadores de `sementes.txt` estão entre eles
+- **WHEN** a coleta é executada com `--limite 500` e `sementes.txt` existe
+- **THEN** os conjuntos das sementes são coletados antes da listagem geral
+- **AND** todos os identificadores que resolvem estão entre os gravados
+- **AND** no máximo 500 conjuntos são gravados
+- **AND** o restante da amostra vem da listagem paginada
+
+#### Scenario: semente que não resolve não interrompe a amostra
+
+- **WHEN** um identificador de semente não é encontrado no portal
+- **THEN** o identificador e o motivo são gravados em `falhas.jsonl`
+- **AND** a coleta prossegue para as demais sementes
 
 #### Scenario: saída separada da base completa
 

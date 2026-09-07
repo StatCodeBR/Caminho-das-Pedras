@@ -31,4 +31,12 @@ Esta é a primeira camada do sistema. Nada mais funciona sem ela.
 
 - Cria o diretório `pipeline/bruto/`, não versionado.
 - Passa a exigir a variável de ambiente `DADOS_GOV_API_KEY`.
+- A API responde com página vazia de forma intermitente, em cerca de um terço
+  dos pedidos, com status 200. Página vazia portanto não serve como sinal de
+  fim de listagem, e a coleta precisa confirmá-la antes de encerrar.
+- O endpoint de detalhe aceita tanto o UUID quanto o slug do conjunto, e o slug
+  é sensível a maiúsculas. Já o parâmetro de busca `nomeConjuntoDados` casa o
+  título, não o slug: `arboviroses-dengue` se chama "Sinan/Dengue" e não é
+  encontrado por busca. Etapas seguintes que dependam de nomes precisam saber
+  que `nome` e `titulo` são campos independentes.
 - Tempo estimado da coleta completa: dezenas de minutos, executada raramente.
