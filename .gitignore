@@ -32,3 +32,4 @@ pipeline/dados/*.npy
 
 # Claude Code (local, não compartilhado)
 .claude/settings.local.json
+docs/historico claude/
