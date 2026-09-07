@@ -50,6 +50,35 @@ não esteja presente nos metadados fornecidos.
 - **THEN** o conjunto ainda assim recebe uma ficha
 - **AND** permanece recuperável pela busca
 
+### Requirement: Confiança verificada pelo pipeline, não declarada pelo modelo
+
+O pipeline SHALL rebaixar `confianca` para `baixa` quando a descrição de origem
+for curta demais para sustentar afirmação sobre o conteúdo, independentemente do
+valor que o modelo tenha retornado. O pipeline NÃO SHALL elevar a confiança em
+nenhuma circunstância.
+
+A trava existe porque a falha se concentra numa faixa estreita: com descrição
+entre 20 e 40 caracteres o modelo tem *quase* informação e completa o vazio — um
+conjunto chamado "11. Mortalidade Materna", com 27 caracteres de descrição,
+produziu ficha afirmando indicadores de *near miss* que a origem não menciona.
+Instrução no prompt funciona mal nessa faixa.
+
+A consequência não é cosmética: o resumo alimenta o `texto_indexavel`, então
+afirmação inventada vira falso positivo permanente na busca. Confiança baixa
+limita as perguntas e desprioriza a ficha, contendo o dano.
+
+#### Scenario: descrição curta demais
+
+- **WHEN** a descrição de origem tem menos caracteres que o limiar
+- **AND** o modelo retorna `confianca` `alta` ou `media`
+- **THEN** a confiança gravada é `baixa`
+- **AND** valem os limites de `baixa`, inclusive o máximo de 2 perguntas
+
+#### Scenario: a trava só rebaixa
+
+- **WHEN** o modelo retorna `confianca` `baixa` para um conjunto bem descrito
+- **THEN** a confiança gravada continua `baixa`
+
 ### Requirement: Perguntas exemplo em linguagem de cidadão
 
 O enriquecedor SHALL gerar até 5 perguntas que uma pessoa sem formação técnica

@@ -42,12 +42,32 @@ simples. Sem jargão administrativo, sem sigla não explicada, sem repetir o
 título literalmente. Se o título é uma sigla opaca ("Sinan/Dengue"), o resumo é
 o lugar de dizer o que ela significa, mas só se a descrição permitir.
 
+Antes de entregar o resumo, leia-o ao lado do título e pergunte: ele acrescenta
+alguma coisa? "Taxa de infecção hospitalar no Hospital X" como resumo de um
+conjunto chamado "Infecção Hospitalar" não acrescenta nada. Quando os metadados
+não permitem descrever melhor **o que o conjunto é**, descreva **o que ele
+permite descobrir** — quem pode usá-lo e para quê. Isso é uma frase honesta
+sobre o alcance do dado, não uma afirmação sobre conteúdo que você não viu.
+
 **perguntas** — até 5 perguntas que uma pessoa sem formação técnica faria e que
 este conjunto ajuda a responder. Use as palavras do cotidiano: "hospital" e não
 "estabelecimento de saúde", "creche" e não "educação infantil", "remédio de
 graça" e não "assistência farmacêutica". Não repita o título como pergunta.
 Se você marcou `confianca` como `baixa` — isto é, se só o título e o órgão
 sustentam a ficha — escreva no máximo 2 perguntas.
+
+As perguntas são feitas por quem NÃO trabalha no setor. Nunca use:
+
+- sigla de sistema (VIGIHOSP, SINAN, CNES, SIASI);
+- termo técnico quando existe equivalente popular;
+- pergunta sobre metadado (periodicidade, formato, quem publica).
+
+Se um termo técnico é inevitável, use a forma popular na pergunta e deixe o
+termo técnico apenas no resumo.
+
+Perguntar de quanto em quanto tempo o dado é atualizado não é pergunta de
+descoberta: é pergunta de quem já achou o conjunto. Ela nunca vai casar com uma
+busca real, e só polui o índice.
 
 **temas** — de 1 a 3 chaves da lista abaixo. Use exatamente estas chaves:
 

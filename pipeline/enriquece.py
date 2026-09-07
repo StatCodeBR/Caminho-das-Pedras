@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 import os
 import sqlite3
 import sys
@@ -26,7 +27,9 @@ from urllib.parse import unquote, urlparse
 import typer
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+import provedores
 import temas as temas_modulo
+from provedores import Provedor, SemCredencial
 
 RAIZ = Path(__file__).resolve().parent
 DIRETORIO_DADOS = RAIZ / "dados"
@@ -34,13 +37,12 @@ DIRETORIO_CACHE = RAIZ / "cache"
 ARQUIVO_PROMPT = RAIZ / "prompts" / "ficha.md"
 ARQUIVO_LOTE = DIRETORIO_CACHE / "lote.json"
 
-# O design da mudança 04 manda usar o modelo mais barato da família na API de
-# lotes: não há usuário esperando, e o custo escala com o catálogo inteiro.
-MODELO_PADRAO = "claude-haiku-4-5"
 MAX_TENTATIVAS_VALIDACAO = 2
 MAX_RECURSOS_NO_PROMPT = 20
 MAX_CARACTERES_DESCRICAO = 1500
 CONFIANCAS = ("alta", "media", "baixa")
+# Abaixo disto a descrição não sustenta afirmação nenhuma sobre o conteúdo.
+LIMIAR_DESCRICAO_POBRE = 60
 
 # Estruturado no nível da API: o modelo não tem como devolver cerca de markdown.
 ESQUEMA_FICHA: dict[str, Any] = {
@@ -124,6 +126,30 @@ class FichaGerada(BaseModel):
         limite = 2 if self.confianca == "baixa" else 5
         perguntas = [p.strip() for p in self.perguntas if str(p).strip()][:limite]
         return self.model_copy(update={"perguntas": perguntas})
+
+
+def travar_confianca(conjunto: dict[str, Any], ficha: FichaGerada) -> FichaGerada:
+    """Descrição pobre força `baixa`, diga o modelo o que disser.
+
+    Entre 20 e 40 caracteres de descrição o modelo tem *quase* informação, e é
+    aí que ele completa o vazio: um conjunto chamado "11. Mortalidade Materna"
+    com 27 caracteres virou ficha afirmando indicadores de *near miss*, que a
+    origem não sustenta. Instrução funciona mal nessa faixa; trava funciona.
+
+    A consequência não é cosmética. O resumo alimenta o `texto_indexavel`, então
+    uma afirmação inventada vira falso positivo permanente na busca — o usuário
+    procura por um assunto e chega a um conjunto que talvez não o trate. Com
+    `baixa`, a ficha perde perguntas e a busca a desprioriza, contendo o dano.
+
+    A verificação é do pipeline, não do modelo: a ficha nunca declara mais
+    confiança do que a fonte sustenta.
+    """
+    if ficha.confianca == "baixa":
+        return ficha
+    descricao = (conjunto.get("descricao") or "").strip()
+    if len(descricao) >= LIMIAR_DESCRICAO_POBRE:
+        return ficha
+    return ficha.model_copy(update={"confianca": "baixa"}).normalizada()
 
 
 def ficha_de_fallback(conjunto: dict[str, Any]) -> FichaGerada:
@@ -244,14 +270,19 @@ def carregar_prompt() -> str:
     return modelo.replace("{temas}", temas_modulo.para_prompt())
 
 
-def calcular_hash(prompt: str, entrada: str, modelo: str) -> str:
-    """O prompt entra no hash: mudá-lo invalida o cache inteiro, e deve mesmo."""
+def calcular_hash(prompt: str, entrada: str, identificador: str) -> str:
+    """Prompt, metadados e identificador do provedor, os três no hash.
+
+    Mudar o prompt invalida o cache inteiro, e deve mesmo. Trocar de provedor
+    ou de modelo também: ficha escrita por outro modelo é outra ficha, e servir
+    a antiga esconderia de quem audita quem de fato a escreveu.
+    """
     digestor = hashlib.sha256()
     digestor.update(prompt.encode("utf-8"))
     digestor.update(b"\x00")
     digestor.update(entrada.encode("utf-8"))
     digestor.update(b"\x00")
-    digestor.update(modelo.encode("utf-8"))
+    digestor.update(identificador.encode("utf-8"))
     return digestor.hexdigest()
 
 
@@ -306,6 +337,9 @@ CREATE TABLE IF NOT EXISTS ficha (
     confianca       TEXT NOT NULL,
     texto_indexavel TEXT NOT NULL,
     hash_entrada    TEXT NOT NULL,
+    -- Quem escreveu esta ficha, no formato provedor/modelo. Sem isso não há
+    -- como auditar depois por que uma ficha ficou boa e outra não.
+    modelo          TEXT NOT NULL DEFAULT '',
     origem          TEXT NOT NULL,
     gerada_em       TEXT NOT NULL
 );
@@ -315,11 +349,23 @@ CREATE INDEX IF NOT EXISTS idx_ficha_hash      ON ficha(hash_entrada);
 """
 
 
+COLUNAS_FICHA_MIGRAVEIS = {
+    # Acrescentada depois que a tabela já existia em bancos de desenvolvimento;
+    # `CREATE TABLE IF NOT EXISTS` não migra o que já está lá.
+    "modelo": "TEXT NOT NULL DEFAULT ''",
+}
+
+
 def abrir_banco(caminho: Path) -> sqlite3.Connection:
     conexao = sqlite3.connect(caminho)
     conexao.row_factory = sqlite3.Row
     conexao.execute("PRAGMA foreign_keys = ON")
     conexao.executescript(DDL_FICHA)
+    existentes = {linha[1] for linha in conexao.execute("PRAGMA table_info(ficha)")}
+    for coluna, tipo in COLUNAS_FICHA_MIGRAVEIS.items():
+        if coluna not in existentes:
+            conexao.execute(f"ALTER TABLE ficha ADD COLUMN {coluna} {tipo}")
+    conexao.commit()
     return conexao
 
 
@@ -342,26 +388,93 @@ def ler_conjuntos(conexao: sqlite3.Connection, limite: int | None) -> list[dict[
     return conjuntos
 
 
+FAIXAS_DESCRICAO = (
+    ("sem", 0, 40),
+    ("curta", 40, 200),
+    ("media", 200, 800),
+    ("longa", 800, 10**9),
+)
+
+
+def sortear_variado(
+    conexao: sqlite3.Connection, quantidade: int, semente: int = 0
+) -> list[dict[str, Any]]:
+    """Amostra espalhada por órgão e por riqueza de metadado.
+
+    Os primeiros N conjuntos por slug são quase todos do mesmo hospital, e uma
+    revisão feita sobre eles não diz nada sobre o catálogo. Aqui a amostra
+    percorre as faixas de descrição em rodízio e nunca repete órgão enquanto
+    houver órgão novo disponível. Determinística: a mesma semente devolve a
+    mesma amostra, para que a revisão seja reproduzível.
+    """
+    todos = ler_conjuntos(conexao, None)
+    aleatorio = random.Random(semente)
+
+    por_faixa: dict[str, list[dict[str, Any]]] = {nome: [] for nome, _, _ in FAIXAS_DESCRICAO}
+    for conjunto in todos:
+        tamanho = len(conjunto.get("descricao") or "")
+        for nome, minimo, maximo in FAIXAS_DESCRICAO:
+            if minimo <= tamanho < maximo:
+                por_faixa[nome].append(conjunto)
+                break
+    for lista in por_faixa.values():
+        aleatorio.shuffle(lista)
+
+    escolhidos: list[dict[str, Any]] = []
+    orgaos_usados: set[str] = set()
+    nomes_faixas = [nome for nome, _, _ in FAIXAS_DESCRICAO if por_faixa[nome]]
+
+    # Duas passadas: a primeira recusa repetir órgão, a segunda completa.
+    for exigir_orgao_novo in (True, False):
+        indice = 0
+        while len(escolhidos) < quantidade and nomes_faixas:
+            faixa = nomes_faixas[indice % len(nomes_faixas)]
+            indice += 1
+            candidatos = por_faixa[faixa]
+            achou = False
+            for conjunto in list(candidatos):
+                orgao = conjunto.get("organizacao") or ""
+                if exigir_orgao_novo and orgao in orgaos_usados:
+                    continue
+                candidatos.remove(conjunto)
+                orgaos_usados.add(orgao)
+                escolhidos.append(conjunto)
+                achou = True
+                break
+            if not achou and indice % len(nomes_faixas) == 0:
+                if all(not por_faixa[n] for n in nomes_faixas):
+                    break
+                if exigir_orgao_novo and not any(
+                    (c.get("organizacao") or "") not in orgaos_usados
+                    for n in nomes_faixas
+                    for c in por_faixa[n]
+                ):
+                    break
+
+    return escolhidos[:quantidade]
+
+
 def gravar_ficha(
     conexao: sqlite3.Connection,
     conjunto: dict[str, Any],
     ficha: FichaGerada,
     hash_entrada: str,
+    modelo: str,
     origem: str,
 ) -> None:
     conexao.execute(
         """
         INSERT INTO ficha (conjunto_id, resumo, perguntas_json, temas_json,
                            abrangencia, granularidade, confianca, texto_indexavel,
-                           hash_entrada, origem, gerada_em)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           hash_entrada, modelo, origem, gerada_em)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(conjunto_id) DO UPDATE SET
             resumo=excluded.resumo, perguntas_json=excluded.perguntas_json,
             temas_json=excluded.temas_json, abrangencia=excluded.abrangencia,
             granularidade=excluded.granularidade, confianca=excluded.confianca,
             texto_indexavel=excluded.texto_indexavel,
-            hash_entrada=excluded.hash_entrada, origem=excluded.origem,
-            gerada_em=excluded.gerada_em
+            hash_entrada=excluded.hash_entrada, modelo=excluded.modelo,
+            origem=excluded.origem, gerada_em=excluded.gerada_em
         """,
         (
             conjunto["id"],
@@ -373,6 +486,7 @@ def gravar_ficha(
             ficha.confianca,
             texto_indexavel(conjunto, ficha),
             hash_entrada,
+            modelo,
             origem,
             agora_utc(),
         ),
@@ -382,61 +496,21 @@ def gravar_ficha(
 # --- chamada ao modelo ---------------------------------------------------
 
 
-class SemCredencial(RuntimeError):
-    """A chave da Anthropic não foi fornecida pelo ambiente."""
-
-
-def obter_cliente():
-    chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not chave:
-        raise SemCredencial(
-            "Defina ANTHROPIC_API_KEY antes de enriquecer.\n"
-            "A chave é gerada em https://console.anthropic.com/settings/keys.\n"
-            "Guarde-a no .env do projeto, que não é versionado."
-        )
-    import anthropic
-
-    return anthropic.Anthropic(api_key=chave)
-
-
 def interpretar_resposta(texto: str) -> FichaGerada:
     """Valida a saída do modelo. Ergue ValidationError/ValueError se não presta."""
     return FichaGerada.model_validate_json(texto).normalizada()
 
 
-def pedir_ficha(cliente, modelo: str, prompt: str, entrada: str) -> FichaGerada:
-    """Uma chamada síncrona, com as repetições que a spec permite."""
+def pedir_ficha(provedor: Provedor, prompt: str, entrada: str) -> FichaGerada:
+    """Uma ficha, com as repetições que a spec permite antes do fallback."""
     ultimo_erro: Exception | None = None
     for _ in range(MAX_TENTATIVAS_VALIDACAO + 1):
-        resposta = cliente.messages.create(
-            model=modelo,
-            max_tokens=2000,
-            system=prompt,
-            output_config={"format": {"type": "json_schema", "schema": ESQUEMA_FICHA}},
-            messages=[{"role": "user", "content": entrada}],
-        )
-        texto = next((b.text for b in resposta.content if b.type == "text"), "")
         try:
+            texto = provedor.gerar(prompt, entrada, ESQUEMA_FICHA)
             return interpretar_resposta(texto)
         except (ValidationError, ValueError) as erro:
             ultimo_erro = erro
     raise ultimo_erro or ValueError("resposta inválida")
-
-
-def montar_pedido_lote(identificador: str, modelo: str, prompt: str, entrada: str) -> dict:
-    """Um item da submissão em lote, no formato que a API de batches espera."""
-    return {
-        "custom_id": identificador,
-        "params": {
-            "model": modelo,
-            "max_tokens": 2000,
-            "system": prompt,
-            "output_config": {
-                "format": {"type": "json_schema", "schema": ESQUEMA_FICHA}
-            },
-            "messages": [{"role": "user", "content": entrada}],
-        },
-    }
 
 
 # --- relatório -----------------------------------------------------------
@@ -458,9 +532,11 @@ class Relatorio:
         return self.do_cache / self.total if self.total else 0.0
 
 
-def imprimir_relatorio(relatorio: Relatorio, banco: Path) -> None:
+def imprimir_relatorio(relatorio: Relatorio, banco: Path, identificador: str = "") -> None:
     log("")
     log("relatório de enriquecimento")
+    if identificador:
+        log(f"  gerado por:            {identificador}")
     log(f"  conjuntos processados: {relatorio.total}")
     log(f"  vindos do cache:       {relatorio.do_cache} "
         f"({relatorio.aproveitamento_cache:.0%})")
@@ -480,19 +556,25 @@ def imprimir_relatorio(relatorio: Relatorio, banco: Path) -> None:
 def enriquecer(
     *,
     banco: Path,
+    provedor: Provedor,
     limite: int | None = None,
-    modelo: str = MODELO_PADRAO,
-    cliente=None,
+    sortear: bool = False,
 ) -> Relatorio:
     """Processa conjuntos um a um, de forma síncrona. Usado na amostra."""
     prompt = carregar_prompt()
+    identificador = provedor.identificador
     conexao = abrir_banco(banco)
     relatorio = Relatorio()
 
     try:
-        for conjunto in ler_conjuntos(conexao, limite):
+        selecionados = (
+            sortear_variado(conexao, limite or 15)
+            if sortear
+            else ler_conjuntos(conexao, limite)
+        )
+        for conjunto in selecionados:
             entrada = montar_entrada(conjunto)
-            hash_entrada = calcular_hash(prompt, entrada, modelo)
+            hash_entrada = calcular_hash(prompt, entrada, identificador)
             relatorio.total += 1
 
             ficha = ler_cache(hash_entrada)
@@ -500,10 +582,8 @@ def enriquecer(
                 relatorio.do_cache += 1
                 origem = "cache"
             else:
-                if cliente is None:
-                    cliente = obter_cliente()
                 try:
-                    ficha = pedir_ficha(cliente, modelo, prompt, entrada)
+                    ficha = pedir_ficha(provedor, prompt, entrada)
                     relatorio.do_modelo += 1
                     origem = "modelo"
                 except (ValidationError, ValueError) as erro:
@@ -513,8 +593,14 @@ def enriquecer(
                     origem = "fallback"
                 gravar_cache(hash_entrada, ficha)
 
-            gravar_ficha(conexao, conjunto, ficha, hash_entrada, origem)
+            ficha = travar_confianca(conjunto, ficha)
+            gravar_ficha(conexao, conjunto, ficha, hash_entrada, identificador, origem)
             relatorio.contar(ficha)
+            # Commit periódico: uma execução de meia hora não pode perder tudo
+            # porque caiu no minuto 28. O cache já protege os tokens gastos;
+            # isto protege o banco.
+            if relatorio.total % 25 == 0:
+                conexao.commit()
         conexao.commit()
     finally:
         conexao.close()
@@ -523,7 +609,7 @@ def enriquecer(
 
 
 def _pendentes(
-    conexao: sqlite3.Connection, prompt: str, modelo: str, limite: int | None
+    conexao: sqlite3.Connection, prompt: str, identificador: str, limite: int | None
 ) -> tuple[list[tuple[dict, str, str]], Relatorio]:
     """Separa o que já está em cache do que precisa ir ao modelo."""
     relatorio = Relatorio()
@@ -531,13 +617,14 @@ def _pendentes(
 
     for conjunto in ler_conjuntos(conexao, limite):
         entrada = montar_entrada(conjunto)
-        hash_entrada = calcular_hash(prompt, entrada, modelo)
+        hash_entrada = calcular_hash(prompt, entrada, identificador)
         relatorio.total += 1
 
         ficha = ler_cache(hash_entrada)
         if ficha is not None:
             relatorio.do_cache += 1
-            gravar_ficha(conexao, conjunto, ficha, hash_entrada, "cache")
+            ficha = travar_confianca(conjunto, ficha)
+            gravar_ficha(conexao, conjunto, ficha, hash_entrada, identificador, "cache")
             relatorio.contar(ficha)
         else:
             pendentes.append((conjunto, entrada, hash_entrada))
@@ -564,17 +651,25 @@ def gravar_lote_pendente(estado: dict[str, Any]) -> None:
 def enriquecer_em_lote(
     *,
     banco: Path,
+    provedor: Provedor,
     limite: int | None = None,
-    modelo: str = MODELO_PADRAO,
-    cliente=None,
     espera: float = 30.0,
 ) -> Relatorio:
-    """Submete tudo de uma vez e coleta depois, retomando lote interrompido."""
+    """Submete tudo de uma vez e coleta depois, retomando lote interrompido.
+
+    Provedor sem lote cai para o caminho síncrono: mais lento e mais caro, mas
+    correto. É a diferença entre não suportar e fingir que suporta.
+    """
+    if not provedor.suporta_lote():
+        log(f"{provedor.nome} não oferece lote; usando chamadas uma a uma")
+        return enriquecer(banco=banco, provedor=provedor, limite=limite)
+
     prompt = carregar_prompt()
+    identificador = provedor.identificador
     conexao = abrir_banco(banco)
 
     try:
-        pendentes, relatorio = _pendentes(conexao, prompt, modelo, limite)
+        pendentes, relatorio = _pendentes(conexao, prompt, identificador, limite)
         conexao.commit()
 
         if not pendentes:
@@ -582,50 +677,39 @@ def enriquecer_em_lote(
             return relatorio
 
         por_id = {c["id"]: (c, e, h) for c, e, h in pendentes}
-        if cliente is None:
-            cliente = obter_cliente()
 
         estado = ler_lote_pendente()
-        if estado and estado.get("modelo") == modelo:
+        if estado and estado.get("modelo") == identificador:
             log(f"retomando lote {estado['lote_id']} — não resubmetendo")
             lote_id = estado["lote_id"]
         else:
-            lote = cliente.messages.batches.create(
-                requests=[
-                    montar_pedido_lote(conjunto["id"], modelo, prompt, entrada)
-                    for conjunto, entrada, _ in pendentes
-                ]
+            lote_id = provedor.submeter_lote(
+                [(conjunto["id"], entrada) for conjunto, entrada, _ in pendentes],
+                prompt,
+                ESQUEMA_FICHA,
             )
-            lote_id = lote.id
             gravar_lote_pendente(
                 {
                     "lote_id": lote_id,
-                    "modelo": modelo,
+                    "modelo": identificador,
                     "itens": len(pendentes),
                     "submetido_em": agora_utc(),
                 }
             )
             log(f"lote {lote_id} submetido com {len(pendentes)} itens")
 
-        while True:
-            lote = cliente.messages.batches.retrieve(lote_id)
-            if lote.processing_status == "ended":
-                break
-            log(f"lote {lote_id}: {lote.processing_status}, aguardando...")
+        while not provedor.lote_concluido(lote_id):
+            log(f"lote {lote_id} em andamento, aguardando...")
             time.sleep(espera)
 
-        for resultado in cliente.messages.batches.results(lote_id):
-            alvo = por_id.get(resultado.custom_id)
+        for custom_id, texto in provedor.resultados_lote(lote_id):
+            alvo = por_id.get(custom_id)
             if alvo is None:
                 continue
             conjunto, entrada, hash_entrada = alvo
 
             ficha: FichaGerada | None = None
-            if resultado.result.type == "succeeded":
-                texto = next(
-                    (b.text for b in resultado.result.message.content if b.type == "text"),
-                    "",
-                )
+            if texto:
                 try:
                     ficha = interpretar_resposta(texto)
                 except (ValidationError, ValueError) as erro:
@@ -634,7 +718,7 @@ def enriquecer_em_lote(
             if ficha is None:
                 # O lote não repete por si; a retentativa é síncrona e limitada.
                 try:
-                    ficha = pedir_ficha(cliente, modelo, prompt, entrada)
+                    ficha = pedir_ficha(provedor, prompt, entrada)
                     origem = "modelo"
                     relatorio.do_modelo += 1
                 except (ValidationError, ValueError) as erro:
@@ -647,7 +731,8 @@ def enriquecer_em_lote(
                 relatorio.do_modelo += 1
 
             gravar_cache(hash_entrada, ficha)
-            gravar_ficha(conexao, conjunto, ficha, hash_entrada, origem)
+            ficha = travar_confianca(conjunto, ficha)
+            gravar_ficha(conexao, conjunto, ficha, hash_entrada, identificador, origem)
             relatorio.contar(ficha)
 
         conexao.commit()
@@ -668,7 +753,14 @@ def main(
     limite: Optional[int] = typer.Option(
         None, "--limite", min=1, help="Processa apenas os N primeiros conjuntos."
     ),
-    modelo: str = typer.Option(MODELO_PADRAO, "--modelo", help="Modelo da Anthropic."),
+    provedor: str = typer.Option(
+        provedores.PROVEDOR_PADRAO,
+        "--provedor",
+        help=f"Provedor do modelo: {', '.join(sorted(provedores.PROVEDORES))}.",
+    ),
+    modelo: Optional[str] = typer.Option(
+        None, "--modelo", help="Identificador do modelo. Padrão: o do provedor."
+    ),
     banco: Path = typer.Option(
         DIRETORIO_DADOS / "dados.db", "--banco", help="SQLite com o catálogo."
     ),
@@ -682,6 +774,12 @@ def main(
         "--sincrono",
         help="Uma chamada por conjunto, sem lote. Para amostras pequenas.",
     ),
+    sortear: bool = typer.Option(
+        False,
+        "--sortear",
+        help="Amostra espalhada por órgão e por riqueza de descrição, em vez"
+        " dos N primeiros por slug. Determinística.",
+    ),
 ) -> None:
     """Gera as fichas dos conjuntos do catálogo."""
     carregar_env()
@@ -691,29 +789,43 @@ def main(
         log("rode a normalização antes: uv run python normaliza.py")
         raise typer.Exit(code=2)
 
+    try:
+        escolhido = provedores.criar_provedor(provedor, modelo)
+    except ValueError as erro:
+        log(str(erro))
+        raise typer.Exit(code=2)
+
     if simular:
         prompt = carregar_prompt()
         conexao = abrir_banco(banco)
         try:
-            conjuntos = ler_conjuntos(conexao, limite or 3)
+            conjuntos = (
+                sortear_variado(conexao, limite or 3)
+                if sortear
+                else ler_conjuntos(conexao, limite or 3)
+            )
         finally:
             conexao.close()
         log(f"prompt: {ARQUIVO_PROMPT} ({len(prompt)} caracteres)")
         for conjunto in conjuntos:
             entrada = montar_entrada(conjunto)
             print("=" * 72)
-            print(f"# {conjunto['nome']}  (hash {calcular_hash(prompt, entrada, modelo)[:12]})")
+            print(f"# {conjunto['nome']}  (hash {calcular_hash(prompt, entrada, escolhido.identificador)[:12]})")
             print(entrada)
         return
 
     executar = enriquecer if sincrono else enriquecer_em_lote
     try:
-        relatorio = executar(banco=banco, limite=limite, modelo=modelo)
+        relatorio = (
+            enriquecer(banco=banco, provedor=escolhido, limite=limite, sortear=True)
+            if sortear
+            else executar(banco=banco, provedor=escolhido, limite=limite)
+        )
     except SemCredencial as erro:
         log(str(erro))
         raise typer.Exit(code=2)
 
-    imprimir_relatorio(relatorio, banco)
+    imprimir_relatorio(relatorio, banco, escolhido.identificador)
 
 
 if __name__ == "__main__":
