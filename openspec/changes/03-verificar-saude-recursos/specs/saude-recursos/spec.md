@@ -4,9 +4,16 @@
 
 ### Requirement: Verificação HTTP com degradação para GET
 
-O verificador SHALL tentar `HEAD` e, quando o servidor responder 405 ou 501,
-SHALL repetir com `GET` limitado por cabeçalho `Range`, sem baixar o arquivo
-inteiro.
+O verificador SHALL tentar `HEAD` e, quando o servidor recusar o método,
+SHALL repetir com `GET` limitado por cabeçalho `Range`, sem ler o corpo da
+resposta. Recusa de método inclui 405 e 501, mas também **403**.
+
+O 403 está nessa lista por evidência, não por precaução: o `www.gov.br` — o
+host com mais recursos no catálogo — responde 403 a `HEAD` e 206 ao mesmo
+endereço via `GET` com `Range`, com qualquer User-Agent e também sem nenhum
+(verificado em 2026-09-07). Tratar esse 403 como acesso negado marcaria como
+link morto centenas de arquivos intactos. **Não remova o 403 desta lista sem
+antes reverificar esse comportamento.**
 
 #### Scenario: servidor que aceita HEAD
 
@@ -16,9 +23,15 @@ inteiro.
 
 #### Scenario: servidor que rejeita HEAD
 
-- **WHEN** a URL responde 405 a um HEAD
+- **WHEN** a URL responde 405, 501 ou 403 a um HEAD
 - **THEN** uma requisição GET com Range de poucos bytes é feita
 - **AND** o status dessa segunda requisição é o registrado
+
+#### Scenario: recusa de método não é arquivo removido
+
+- **WHEN** o HEAD responde 403 e o GET com Range responde 206
+- **THEN** a classe é `disponivel`
+- **AND** o recurso NÃO é marcado como indisponível
 
 #### Scenario: redirecionamento
 
@@ -54,10 +67,20 @@ de tempo de resposta.
 - **THEN** a classe é `nao_verificado`
 - **AND** nenhuma requisição de rede é feita
 
+#### Scenario: link que não é uma URL
+
+- **WHEN** o campo de link contém texto que não é endereço — frase, caminho com
+      barra invertida, ou prefixo `URL:` esquecido no valor
+- **THEN** a classe é `nao_verificado` e o motivo é registrado
+- **AND** nenhuma requisição de rede é feita
+- **AND** o valor original NÃO é corrigido por inferência
+
 ### Requirement: Registro do momento da checagem
 
 O verificador SHALL gravar `checado_em` em UTC e `latencia_ms` para cada
-recurso verificado.
+recurso verificado, e SHALL gravar o motivo quando a classe não vier de um
+status HTTP, para que o diagnóstico de qualidade do catálogo possa distinguir
+link ausente de link malformado e de tempo esgotado.
 
 #### Scenario: carimbo sempre em UTC
 
