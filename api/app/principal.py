@@ -53,6 +53,10 @@ def _resumo_das_fichas(fichas: list[Recuperado]) -> list[dict]:
             "confianca": f.confianca,
             "url_portal": f.url_portal,
             "pontuacao": round(f.pontuacao, 3),
+            # Sempre presentes como chave, mesmo quando nulas: omitir obrigaria
+            # a interface a adivinhar se a data falta ou se o campo sumiu.
+            "dados_atualizados_em": f.dados_atualizados_em,
+            "metadados_atualizados_em": f.metadados_atualizados_em,
             "recursos": [
                 {
                     "titulo": r.titulo,

@@ -23,7 +23,8 @@ def montar_banco(caminho, fichas):
         """
         CREATE TABLE conjunto (
             id TEXT PRIMARY KEY, nome TEXT, titulo TEXT,
-            descricao TEXT, organizacao TEXT, tags TEXT
+            descricao TEXT, organizacao TEXT, tags TEXT,
+            dados_atualizados_em TEXT, metadados_atualizados_em TEXT
         );
         CREATE TABLE recurso (
             id INTEGER PRIMARY KEY, conjunto_id TEXT, titulo TEXT,
@@ -41,8 +42,11 @@ def montar_banco(caminho, fichas):
     )
     for f in fichas:
         con.execute(
-            "INSERT INTO conjunto VALUES (?,?,?,?,?,?)",
-            (f["id"], f["nome"], f.get("titulo", ""), "", f.get("orgao", ""), "[]"),
+            "INSERT INTO conjunto VALUES (?,?,?,?,?,?,?,?)",
+            (
+                f["id"], f["nome"], f.get("titulo", ""), "", f.get("orgao", ""), "[]",
+                f.get("dados_em"), f.get("metadados_em"),
+            ),
         )
         con.execute(
             "INSERT INTO ficha VALUES (?,?,?,?,?,?)",
@@ -87,18 +91,24 @@ FICHAS = [
         "resumo": "Casos de dengue notificados à vigilância.",
         "perguntas": ["quantos casos de dengue na minha cidade?"],
         "confianca": "alta",
+        "dados_em": "2023-05-01T00:00:00+00:00",
+        "metadados_em": "2024-09-09T14:46:52+00:00",
         "recursos": [
             ("Dengue 2023", "https://exemplo.gov.br/deng23.csv", "csv", "disponivel"),
             ("Dengue 2010", "https://exemplo.gov.br/deng10.csv", "csv", "indisponivel"),
         ],
     },
     {
+        # Sem data dos dados e com a dos metadados em branco: os dois casos que
+        # a interface precisa distinguir de "atualizado".
         "id": "2",
         "nome": "aerodromos-publicos",
         "titulo": "Aeródromos Públicos",
         "orgao": "anac",
         "resumo": "Relação de aeródromos públicos.",
         "confianca": "baixa",
+        "dados_em": None,
+        "metadados_em": "   ",
     },
 ]
 
@@ -120,6 +130,11 @@ def cliente(catalogo, monkeypatch):
     configuracao.cache_clear()
     monkeypatch.setenv("BANCO", str(catalogo))
     monkeypatch.setenv("MODO_STUB", "1")
+    # Com duas fichas e o termo numa delas, o IDF do BM25 é log(1,5/1,5) = 0 e a
+    # pontuação sai exatamente 0,0 — o BM25 dizendo, corretamente, que num corpus
+    # desse tamanho nenhum termo discrimina. O limiar de produção mandaria tudo
+    # para ausência. Aqui se testa o caminho percorrido, não a calibração.
+    monkeypatch.setenv("LIMIAR_RELEVANCIA", "0.0")
     from app.principal import app
 
     with TestClient(app) as c:
@@ -180,6 +195,45 @@ def test_recurso_indisponivel_aparece_sinalizado_nao_omitido(conexao):
 
 def test_consulta_vazia_nao_recupera_nada(conexao):
     assert buscar(conexao, "   ") == []
+
+
+# --- as duas datas -------------------------------------------------------
+
+
+def test_as_duas_datas_vem_separadas(conexao):
+    item = buscar(conexao, "dengue")[0]
+    assert item.dados_atualizados_em == "2023-05-01T00:00:00+00:00"
+    assert item.metadados_atualizados_em == "2024-09-09T14:46:52+00:00"
+    assert item.dados_atualizados_em != item.metadados_atualizados_em
+
+
+def test_data_ausente_vira_nulo_nao_string_vazia(conexao):
+    item = buscar(conexao, "aerodromos")[0]
+    assert item.dados_atualizados_em is None
+    # Espaço em branco é data não declarada, não data em branco: sem isso a
+    # interface exibiria um traço mudo em vez de dizer que não foi informada.
+    assert item.metadados_atualizados_em is None
+
+
+def test_data_dos_dados_nunca_e_substituida_pela_dos_metadados(conexao):
+    item = buscar(conexao, "aerodromos")[0]
+    assert item.dados_atualizados_em is None
+
+
+def test_resumo_do_evento_final_traz_as_duas_chaves(cliente):
+    fim = fim_de(eventos(cliente.post("/perguntar", json={"pergunta": "dengue"})))
+    ficha = fim["fichas"][0]
+    assert "dados_atualizados_em" in ficha
+    assert "metadados_atualizados_em" in ficha
+    assert ficha["dados_atualizados_em"] == "2023-05-01T00:00:00+00:00"
+
+
+def test_chave_da_data_existe_mesmo_quando_nula(cliente):
+    fim = fim_de(eventos(cliente.post("/perguntar", json={"pergunta": "aerodromos"})))
+    fichas = fim["fichas"]
+    if fichas:
+        assert fichas[0]["dados_atualizados_em"] is None
+        assert "metadados_atualizados_em" in fichas[0]
 
 
 # --- roteamento ----------------------------------------------------------

@@ -94,6 +94,16 @@ def descartar_comuns(conexao: sqlite3.Connection, palavras: list[str]) -> list[s
     return [p for p in palavras if frequencias[p] == menor]
 
 
+def _data(bruto: Any) -> str | None:
+    """String vazia e nulo são a mesma coisa: data não declarada.
+
+    Distinguir os dois faria a interface exibir campo vazio em vez de dizer que
+    a data não foi informada, que é justamente o traço mudo a evitar.
+    """
+    texto = (bruto or "").strip() if isinstance(bruto, str) else bruto
+    return texto or None
+
+
 @dataclass
 class Recurso:
     titulo: str
@@ -114,6 +124,12 @@ class Recuperado:
     resumo: str
     perguntas: list[str] = field(default_factory=list)
     recursos: list[Recurso] = field(default_factory=list)
+    # Duas datas, nunca fundidas: a primeira diz quando o dado mudou, a segunda
+    # quando o registro foi editado. Um conjunto com registro editado ontem e
+    # dados de 2019 não é um conjunto atualizado ontem. `None` é valor legítimo
+    # — a data dos dados falta em cerca de um quinto do catálogo.
+    dados_atualizados_em: str | None = None
+    metadados_atualizados_em: str | None = None
 
     @property
     def url_portal(self) -> str:
@@ -136,6 +152,7 @@ def buscar(
         SELECT i.conjunto_id,
                -bm25(ficha_fts, {argumentos}) AS bruta,
                c.nome AS slug, c.titulo, c.organizacao,
+               c.dados_atualizados_em, c.metadados_atualizados_em,
                f.confianca, f.resumo, f.perguntas_json
         FROM ficha_fts i
         JOIN ficha f    ON f.conjunto_id = i.conjunto_id
@@ -168,6 +185,8 @@ def buscar(
                 confianca=linha["confianca"],
                 resumo=linha["resumo"] or "",
                 perguntas=perguntas,
+                dados_atualizados_em=_data(linha["dados_atualizados_em"]),
+                metadados_atualizados_em=_data(linha["metadados_atualizados_em"]),
             )
         )
     carregar_recursos(conexao, recuperados)

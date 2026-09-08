@@ -15,7 +15,7 @@ To recreate this project with the same configuration:
 
 ```sh
 # recreate this project
-pnpm dlx sv@0.17.0 create --template minimal --types ts --add prettier eslint vitest="usages:unit,component" playwright tailwindcss="plugins:typography,forms" sveltekit-adapter="adapter:node" ai-tools="ide:claude-code+delivery:plugin" experimental="versions:kit+features:async,remoteFunctions,explicitEnvironmentVariables,handleRenderingErrors" storybook --install pnpm .
+pnpm dlx sv@0.17.0 create --template minimal --types ts --add tailwindcss="plugins:none" sveltekit-adapter="adapter:node" vitest="usages:unit" --no-download-check --install pnpm web
 ```
 
 ## Developing

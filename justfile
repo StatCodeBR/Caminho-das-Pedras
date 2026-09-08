@@ -47,6 +47,14 @@ api:
 api-stub:
     cd api && MODO_STUB=1 uv run uvicorn app.principal:app --reload
 
+web:
+    cd web && pnpm run dev
+
+# Interface contra a API em modo stub: nenhuma chamada ao modelo.
+web-stub:
+    cd api && MODO_STUB=1 uv run uvicorn app.principal:app --port 8000 &
+    cd web && API_URL=http://localhost:8000 pnpm run dev
+
 # --- qualidade -----------------------------------------------------------
 
 avalia:
@@ -54,6 +62,11 @@ avalia:
 
 spec:
     openspec validate --changes --strict
+
+testes:
+    cd pipeline && uv run pytest -q
+    cd api && uv run pytest -q
+    cd web && pnpm run test
 
 paridade:
     docker compose -f compose.dev.yml up --build

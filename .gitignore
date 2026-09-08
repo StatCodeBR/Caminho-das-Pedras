@@ -37,3 +37,8 @@ docs/historico claude/
 # Rascunhos e travas do LibreOffice na curadoria da avaliação
 *.bak
 .~lock.*#
+
+# SvelteKit
+web/node_modules/
+web/.svelte-kit/
+web/build/
