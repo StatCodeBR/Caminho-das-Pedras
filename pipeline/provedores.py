@@ -11,7 +11,40 @@ from __future__ import annotations
 import os
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, Iterator, Optional
+
+# Preço em dólares por milhão de tokens, (entrada, saída), conferido na tabela
+# pública da Anthropic em 2026-09-07. Modelo ausente daqui não tem custo
+# calculado: o relatório informa os tokens e cala sobre o dinheiro, em vez de
+# apresentar um número inventado como se fosse medido.
+PRECOS_USD: dict[str, tuple[float, float]] = {
+    "claude-haiku-4-5": (1.00, 5.00),
+    "claude-sonnet-5": (3.00, 15.00),
+    "claude-opus-5": (5.00, 25.00),
+}
+
+# A API de lotes cobra metade do preço de tabela.
+DESCONTO_LOTE = 0.5
+
+
+@dataclass
+class Uso:
+    """Tokens consumidos, separados por regime de cobrança.
+
+    Lote e chamada avulsa têm preços diferentes, então somá-los daria um custo
+    errado. O enriquecimento mistura os dois — o lote resolve o grosso e a
+    retentativa de uma resposta inválida é síncrona.
+    """
+
+    entrada: int = 0
+    saida: int = 0
+    entrada_lote: int = 0
+    saida_lote: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.entrada + self.saida + self.entrada_lote + self.saida_lote
 
 
 class SemCredencial(RuntimeError):
@@ -36,6 +69,30 @@ class Provedor(ABC):
 
     nome: str
     modelo: str
+    uso: Uso
+
+    def custo_usd(self) -> float | None:
+        """O que esta execução custou, ou `None` se o preço não for conhecido."""
+        preco = PRECOS_USD.get(self.modelo)
+        if preco is None:
+            return None
+        entrada, saida = preco
+        avulso = self.uso.entrada * entrada + self.uso.saida * saida
+        lote = (self.uso.entrada_lote * entrada + self.uso.saida_lote * saida)
+        return (avulso + lote * DESCONTO_LOTE) / 1_000_000
+
+    def _somar_uso(self, bruto: Any, em_lote: bool = False) -> None:
+        """Acumula o que a resposta declarou ter consumido."""
+        if bruto is None:
+            return
+        entrada = getattr(bruto, "input_tokens", 0) or 0
+        saida = getattr(bruto, "output_tokens", 0) or 0
+        if em_lote:
+            self.uso.entrada_lote += entrada
+            self.uso.saida_lote += saida
+        else:
+            self.uso.entrada += entrada
+            self.uso.saida += saida
 
     @property
     def identificador(self) -> str:
@@ -90,6 +147,7 @@ class ProvedorCohere(Provedor):
         self._cliente = cliente
         self._proxima_chamada = 0.0
         self.esperas_por_limite = 0
+        self.uso = Uso()
 
     @property
     def _intervalo(self) -> float:
@@ -142,6 +200,9 @@ class ProvedorCohere(Provedor):
                 espera = self._intervalo * (2**tentativa)
                 self._proxima_chamada = time.monotonic() + espera
                 continue
+            # A Cohere aninha os tokens sob `usage.tokens`; sem preço na tabela
+            # eles não viram dinheiro, mas o volume ainda é útil no relatório.
+            self._somar_uso(getattr(getattr(resposta, "usage", None), "tokens", None))
             return _texto_da_resposta_cohere(resposta)
         raise LimiteDeTaxa(
             f"a chave da Cohere recusou {self.MAX_TENTATIVAS_429} tentativas seguidas "
@@ -171,6 +232,7 @@ class ProvedorAnthropic(Provedor):
     def __init__(self, modelo: str | None = None, cliente: Any = None):
         self.modelo = modelo or self.MODELO_PADRAO
         self._cliente = cliente
+        self.uso = Uso()
 
     def _obter_cliente(self) -> Any:
         if self._cliente is None:
@@ -194,6 +256,7 @@ class ProvedorAnthropic(Provedor):
             output_config={"format": {"type": "json_schema", "schema": esquema}},
             messages=[{"role": "user", "content": entrada}],
         )
+        self._somar_uso(getattr(resposta, "usage", None))
         for bloco in resposta.content:
             if getattr(bloco, "type", None) == "text":
                 return bloco.text
@@ -230,7 +293,9 @@ class ProvedorAnthropic(Provedor):
         for resultado in self._obter_cliente().messages.batches.results(lote_id):
             texto: Optional[str] = None
             if resultado.result.type == "succeeded":
-                for bloco in resultado.result.message.content:
+                mensagem = resultado.result.message
+                self._somar_uso(getattr(mensagem, "usage", None), em_lote=True)
+                for bloco in mensagem.content:
                     if getattr(bloco, "type", None) == "text":
                         texto = bloco.text
                         break

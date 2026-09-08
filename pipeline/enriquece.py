@@ -389,7 +389,11 @@ def ler_conjuntos(conexao: sqlite3.Connection, limite: int | None) -> list[dict[
 
 
 FAIXAS_DESCRICAO = (
-    ("sem", 0, 40),
+    ("vazia", 0, 20),
+    # Faixa própria de propósito: é onde o modelo tem *quase* informação e
+    # completa o vazio. Juntá-la à faixa vazia faria a amostra de revisão
+    # sorteá-la por acaso, quando ela é justamente a que precisa ser olhada.
+    ("minima", 20, 40),
     ("curta", 40, 200),
     ("media", 200, 800),
     ("longa", 800, 10**9),
@@ -452,6 +456,15 @@ def sortear_variado(
                     break
 
     return escolhidos[:quantidade]
+
+
+def selecionar(
+    conexao: sqlite3.Connection, limite: int | None, sortear: bool, padrao: int = 15
+) -> list[dict[str, Any]]:
+    """Os conjuntos a enriquecer. Sorteio e lote são escolhas independentes."""
+    if sortear:
+        return sortear_variado(conexao, limite or padrao)
+    return ler_conjuntos(conexao, limite)
 
 
 def gravar_ficha(
@@ -532,11 +545,13 @@ class Relatorio:
         return self.do_cache / self.total if self.total else 0.0
 
 
-def imprimir_relatorio(relatorio: Relatorio, banco: Path, identificador: str = "") -> None:
+def imprimir_relatorio(
+    relatorio: Relatorio, banco: Path, provedor: Provedor | None = None
+) -> None:
     log("")
     log("relatório de enriquecimento")
-    if identificador:
-        log(f"  gerado por:            {identificador}")
+    if provedor is not None:
+        log(f"  gerado por:            {provedor.identificador}")
     log(f"  conjuntos processados: {relatorio.total}")
     log(f"  vindos do cache:       {relatorio.do_cache} "
         f"({relatorio.aproveitamento_cache:.0%})")
@@ -547,6 +562,20 @@ def imprimir_relatorio(relatorio: Relatorio, banco: Path, identificador: str = "
         quantidade = relatorio.confianca.get(nivel, 0)
         percentual = quantidade / relatorio.total if relatorio.total else 0.0
         log(f"    {nivel:6s} {quantidade:5d}  ({percentual:.0%})")
+    if provedor is not None and provedor.uso.total:
+        uso = provedor.uso
+        log("  tokens:")
+        if uso.entrada_lote or uso.saida_lote:
+            log(f"    lote     {uso.entrada_lote:7d} entrada  {uso.saida_lote:7d} saída")
+        if uso.entrada or uso.saida:
+            log(f"    avulso   {uso.entrada:7d} entrada  {uso.saida:7d} saída")
+        custo = provedor.custo_usd()
+        if custo is None:
+            log("  custo:                 preço do modelo não tabelado")
+        else:
+            por_ficha = custo / relatorio.total if relatorio.total else 0.0
+            log(f"  custo:                 US$ {custo:.4f} "
+                f"({por_ficha:.5f} por ficha)")
     log(f"  banco:                 {banco}")
 
 
@@ -567,12 +596,7 @@ def enriquecer(
     relatorio = Relatorio()
 
     try:
-        selecionados = (
-            sortear_variado(conexao, limite or 15)
-            if sortear
-            else ler_conjuntos(conexao, limite)
-        )
-        for conjunto in selecionados:
+        for conjunto in selecionar(conexao, limite, sortear):
             entrada = montar_entrada(conjunto)
             hash_entrada = calcular_hash(prompt, entrada, identificador)
             relatorio.total += 1
@@ -609,13 +633,17 @@ def enriquecer(
 
 
 def _pendentes(
-    conexao: sqlite3.Connection, prompt: str, identificador: str, limite: int | None
+    conexao: sqlite3.Connection,
+    prompt: str,
+    identificador: str,
+    limite: int | None,
+    sortear: bool = False,
 ) -> tuple[list[tuple[dict, str, str]], Relatorio]:
     """Separa o que já está em cache do que precisa ir ao modelo."""
     relatorio = Relatorio()
     pendentes: list[tuple[dict, str, str]] = []
 
-    for conjunto in ler_conjuntos(conexao, limite):
+    for conjunto in selecionar(conexao, limite, sortear):
         entrada = montar_entrada(conjunto)
         hash_entrada = calcular_hash(prompt, entrada, identificador)
         relatorio.total += 1
@@ -653,6 +681,7 @@ def enriquecer_em_lote(
     banco: Path,
     provedor: Provedor,
     limite: int | None = None,
+    sortear: bool = False,
     espera: float = 30.0,
 ) -> Relatorio:
     """Submete tudo de uma vez e coleta depois, retomando lote interrompido.
@@ -662,14 +691,18 @@ def enriquecer_em_lote(
     """
     if not provedor.suporta_lote():
         log(f"{provedor.nome} não oferece lote; usando chamadas uma a uma")
-        return enriquecer(banco=banco, provedor=provedor, limite=limite)
+        return enriquecer(
+            banco=banco, provedor=provedor, limite=limite, sortear=sortear
+        )
 
     prompt = carregar_prompt()
     identificador = provedor.identificador
     conexao = abrir_banco(banco)
 
     try:
-        pendentes, relatorio = _pendentes(conexao, prompt, identificador, limite)
+        pendentes, relatorio = _pendentes(
+            conexao, prompt, identificador, limite, sortear
+        )
         conexao.commit()
 
         if not pendentes:
@@ -799,11 +832,7 @@ def main(
         prompt = carregar_prompt()
         conexao = abrir_banco(banco)
         try:
-            conjuntos = (
-                sortear_variado(conexao, limite or 3)
-                if sortear
-                else ler_conjuntos(conexao, limite or 3)
-            )
+            conjuntos = selecionar(conexao, limite or 3, sortear, padrao=3)
         finally:
             conexao.close()
         log(f"prompt: {ARQUIVO_PROMPT} ({len(prompt)} caracteres)")
@@ -816,16 +845,14 @@ def main(
 
     executar = enriquecer if sincrono else enriquecer_em_lote
     try:
-        relatorio = (
-            enriquecer(banco=banco, provedor=escolhido, limite=limite, sortear=True)
-            if sortear
-            else executar(banco=banco, provedor=escolhido, limite=limite)
+        relatorio = executar(
+            banco=banco, provedor=escolhido, limite=limite, sortear=sortear
         )
     except SemCredencial as erro:
         log(str(erro))
         raise typer.Exit(code=2)
 
-    imprimir_relatorio(relatorio, banco, escolhido.identificador)
+    imprimir_relatorio(relatorio, banco, escolhido)
 
 
 if __name__ == "__main__":
