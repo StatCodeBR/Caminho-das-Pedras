@@ -10,14 +10,31 @@ setup:
 
 # --- desenvolvimento -----------------------------------------------------
 
+# O módulo é app.principal, não app.main.
 api:
-    cd api && uv run uvicorn app.main:app --reload --reload-dir app --port 8000
+    cd api && uv run uvicorn app.principal:app --reload --reload-dir app --port 8000
 
+# A API sem consumir token nem exigir credencial da Anthropic.
 api-stub:
-    cd api && MODO_STUB=1 uv run uvicorn app.main:app --reload --reload-dir app --port 8000
+    cd api && MODO_STUB=1 uv run uvicorn app.principal:app --reload --reload-dir app --port 8000
 
+# Só a interface. Precisa da API já rodando em outro terminal.
 web:
-    cd web && pnpm dev
+    cd web && API_URL=http://localhost:8000 pnpm run dev
+
+# Tudo de uma vez, sem gastar nada: API em stub e interface, num terminal só.
+# Ctrl-C derruba os dois.
+[no-cd]
+tudo-stub:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{justfile_directory()}}"
+    ( cd api && MODO_STUB=1 uv run uvicorn app.principal:app --port 8000 ) &
+    api=$!
+    trap 'kill $api 2>/dev/null || true' EXIT INT TERM
+    until curl -sf http://localhost:8000/saude >/dev/null; do sleep 0.5; done
+    echo "API no ar em http://localhost:8000"
+    cd web && API_URL=http://localhost:8000 pnpm run dev
 
 # --- pipeline ------------------------------------------------------------
 
@@ -39,21 +56,6 @@ dados-full:
     cd pipeline && uv run python saude.py
     cd pipeline && uv run python enriquece.py
     cd pipeline && uv run python indexa.py
-
-api:
-    cd api && uv run uvicorn app.principal:app --reload
-
-# Sobe a API sem consumir tokens nem exigir credencial
-api-stub:
-    cd api && MODO_STUB=1 uv run uvicorn app.principal:app --reload
-
-web:
-    cd web && pnpm run dev
-
-# Interface contra a API em modo stub: nenhuma chamada ao modelo.
-web-stub:
-    cd api && MODO_STUB=1 uv run uvicorn app.principal:app --port 8000 &
-    cd web && API_URL=http://localhost:8000 pnpm run dev
 
 # --- qualidade -----------------------------------------------------------
 
