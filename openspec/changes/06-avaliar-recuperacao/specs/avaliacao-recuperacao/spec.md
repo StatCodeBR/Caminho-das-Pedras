@@ -25,6 +25,40 @@ anotados para cada uma.
 - **WHEN** o conjunto de avaliação é consultado
 - **THEN** cada pergunta possui tema e nível de dificuldade registrados
 
+### Requirement: Caminho de ausência como acerto
+
+O conjunto de avaliação SHALL admitir o valor `nenhum` na coluna de conjuntos
+aceitáveis, marcando pergunta que o catálogo não responde. A avaliação NÃO SHALL
+tratar esse valor como identificador de conjunto, e SHALL contá-lo como acerto
+quando a recuperação não retornar resultado relevante.
+
+Saber calar é parte do produto. Um assistente que sempre devolve alguma coisa
+ensina o usuário a desconfiar de tudo que ele devolve; o catálogo brasileiro tem
+lacunas reais, e admiti-las é o que separa a resposta honesta da plausível.
+
+Sem esta regra a métrica pune o comportamento certo: uma pergunta sem resposta no
+catálogo contaria como falha justamente quando o sistema acerta ao não inventar,
+e `nenhum` seria procurado como se fosse um slug.
+
+#### Scenario: pergunta sem resposta no catálogo
+
+- **WHEN** a pergunta tem `nenhum` como único conjunto aceitável
+- **AND** a recuperação não retorna nenhum resultado
+- **THEN** a pergunta conta como acerto em recall e MRR
+
+#### Scenario: recuperação devolve algo que não deveria
+
+- **WHEN** a pergunta tem `nenhum` como único conjunto aceitável
+- **AND** a recuperação retorna ao menos um resultado
+- **THEN** a pergunta conta como erro
+- **AND** os resultados indevidos são exibidos no diagnóstico
+
+#### Scenario: `nenhum` nunca é resolvido como identificador
+
+- **WHEN** o conjunto de avaliação é carregado
+- **THEN** `nenhum` não é procurado no catálogo
+- **AND** sua ausência do banco não é reportada como anotação quebrada
+
 ### Requirement: Métricas de recall e MRR
 
 A avaliação SHALL calcular recall@5, recall@10 e MRR sobre o conjunto de

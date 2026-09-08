@@ -2,29 +2,30 @@
 
 ## Conjunto de avaliação
 
-- [ ] Definir formato: pergunta, conjuntos aceitáveis, tema, dificuldade
+- [x] Definir formato: pergunta, conjuntos aceitáveis, tema, dificuldade
 - [ ] Escrever 50 perguntas em linguagem de cidadão, sem copiar títulos
-- [ ] Anotar à mão os conjuntos aceitáveis para cada pergunta
-- [ ] Distribuir entre temas e níveis de dificuldade
-- [ ] Versionar `avaliacao/perguntas.csv` no Git
-- [ ] Alimentar `pipeline/sementes.txt` com os conjuntos citados
+- [x] Anotar à mão os conjuntos aceitáveis para cada pergunta
+- [x] Distribuir entre temas e níveis de dificuldade
+- [x] Versionar `avaliacao/perguntas.csv` no Git
+- [x] Alimentar `pipeline/sementes.txt` com os conjuntos citados
 
 ## Execução
 
-- [ ] Implementar `avalia.py` executando a recuperação para cada pergunta
-- [ ] Calcular recall@5, recall@10 e MRR
-- [ ] Quebrar os resultados por tema e por dificuldade
-- [ ] Listar as perguntas que falharam, com os cinco primeiros retornados
+- [x] Implementar `avalia.py` executando a recuperação para cada pergunta
+- [x] Calcular recall@5, recall@10 e MRR
+- [x] Quebrar os resultados por tema e por dificuldade
+- [x] Listar as perguntas que falharam, com os cinco primeiros retornados
 
 ## Histórico
 
-- [ ] Gravar cada execução com data, métricas e identificação da versão
-- [ ] Comparar automaticamente com a execução anterior
-- [ ] Encerrar com código diferente de 0 em regressão acima do limiar
+- [x] Gravar cada execução com data, métricas e identificação da versão
+- [x] Comparar automaticamente com a execução anterior
+- [x] Encerrar com código diferente de 0 em regressão acima do limiar
 
 ## Verificação
 
-- [ ] Teste: execução é determinística para o mesmo índice
-- [ ] Teste: pergunta com múltiplos conjuntos aceitáveis conta acerto
-- [ ] Estabelecer a linha de base com a busca léxica da mudança 05
-- [ ] `openspec validate --strict`
+- [x] Teste: execução é determinística para o mesmo índice
+- [x] Teste: pergunta com múltiplos conjuntos aceitáveis conta acerto
+- [x] Teste: pergunta de ausência conta acerto quando nada é recuperado
+- [x] Estabelecer a linha de base com a busca léxica da mudança 05
+- [x] `openspec validate --strict`
