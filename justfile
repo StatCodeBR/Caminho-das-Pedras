@@ -70,5 +70,9 @@ testes:
     cd api && uv run pytest -q
     cd web && pnpm run test
 
+# Sobe os dois containers como em produção. Exige DOMINIO e ORIGIN no .env.
+# Atenção: o compose lê o .env do repositório, então a chave real da Anthropic
+# entra no container e as perguntas custam de verdade. Use MODO_STUB=1 para
+# exercitar a pilha sem gastar.
 paridade:
-    docker compose -f compose.dev.yml up --build
+    docker compose up --build

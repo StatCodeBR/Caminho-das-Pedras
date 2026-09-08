@@ -1,0 +1,6 @@
+# node_modules do NixOS traz caminhos do /nix/store e quebra na imagem Debian.
+node_modules/
+.svelte-kit/
+build/
+.env
+*.bak

@@ -1,0 +1,72 @@
+# Publicação no Dokploy, atrás do Traefik.
+#
+# Só o `web` tem domínio. A `api` fica na rede interna e é alcançada por
+# `http://api:8000`: ela não precisa de CORS, o endereço dela não vai ao
+# navegador, e nenhuma rota do serviço de resposta fica exposta na internet.
+
+services:
+  api:
+    build:
+      # A raiz, não `api/`: a imagem precisa do dados.db gerado em `pipeline/`.
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Sem chave o serviço ainda sobe e responde: template e modo reduzido não
+      # dependem do modelo. Só a redação cai.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MODO_STUB: ${MODO_STUB:-0}
+      MODELO: ${MODELO:-claude-haiku-4-5}
+      LIMIAR_TEMPLATE: ${LIMIAR_TEMPLATE:-20.0}
+      MARGEM_TEMPLATE: ${MARGEM_TEMPLATE:-2.0}
+      LIMIAR_RELEVANCIA: ${LIMIAR_RELEVANCIA:-3.0}
+    # `expose` e não `ports`: alcançável só de dentro da rede, nunca do host.
+    expose:
+      - "8000"
+    networks:
+      - interna
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys,json; r=json.load(urllib.request.urlopen('http://127.0.0.1:8000/saude', timeout=4)); sys.exit(0 if r.get('ok') else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Nome do serviço na rede interna: o navegador nunca vê este endereço.
+      API_URL: http://api:8000
+      # O adapter-node exige ORIGIN para validar POST; sem isso o envio da
+      # pergunta é recusado como falsificação de origem.
+      ORIGIN: ${ORIGIN:?defina ORIGIN com a URL pública, ex. https://caminho.exemplo.br}
+    depends_on:
+      api:
+        # Espera o catálogo estar legível: subir a tela antes só produziria
+        # erro na primeira pergunta.
+        condition: service_healthy
+    expose:
+      - "3000"
+    networks:
+      - interna
+      - dokploy-network
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.services.caminho-web.loadbalancer.server.port: "3000"
+      traefik.http.routers.caminho-web.rule: Host(`${DOMINIO:?defina DOMINIO}`)
+      traefik.http.routers.caminho-web.entrypoints: websecure
+      traefik.http.routers.caminho-web.tls.certresolver: letsencrypt
+
+networks:
+  interna:
+    driver: bridge
+  dokploy-network:
+    external: true

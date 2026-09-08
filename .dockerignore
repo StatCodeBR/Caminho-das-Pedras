@@ -1,14 +1,23 @@
-.venv/
+# O ambiente de desenvolvimento é NixOS: .venv e node_modules carregam caminhos
+# absolutos do /nix/store e quebram dentro de uma imagem Debian. Eles nunca
+# entram — as dependências são instaladas na build.
 **/.venv/
-node_modules/
 **/node_modules/
-.npm/
-.direnv/
-.git/
-result
-result-*
-__pycache__/
-*.pyc
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+
+# Artefatos de build do SvelteKit, refeitos dentro da imagem
+web/.svelte-kit/
+web/build/
+
+# JSONL bruto e cache do enriquecimento: pesados e desnecessários em produção.
+# O dados.db entra explicitamente no Dockerfile da api.
 pipeline/bruto/
 pipeline/cache/
-openspec/
+pipeline/dados/*.db-journal
+
+.git/
+.direnv/
+*.bak
+.env
