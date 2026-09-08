@@ -2,8 +2,22 @@
 name = "api"
 version = "0.1.0"
 requires-python = ">=3.12"
+# Sem torch, sem sentence-transformers, sem nada que o pipeline carregue: este
+# projeto sobe num container magro e responde em tempo de requisição.
 dependencies = [
+    "anthropic>=1.4.0",
     "fastapi>=0.141.1",
     "pydantic-settings>=2.15.0",
     "uvicorn>=0.52.4",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

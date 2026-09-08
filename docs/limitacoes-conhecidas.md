@@ -93,7 +93,34 @@ pipeline em vez de instruir no prompt.
 
 ---
 
-## 4. Os slugs do portal não são deriváveis do título
+## 4. A pontuação léxica não distingue "é do assunto" de "responde à pergunta"
+
+**O que acontece.** O BM25 mede sobreposição de vocabulário. Uma pergunta pode
+casar fortemente com um conjunto do tema certo que não contém o dado pedido, e a
+pontuação alta não sinaliza nenhuma diferença.
+
+**Caso observado.** "quanto ganha um professor em média no Brasil" — que o
+catálogo não responde — recupera `indicadores-educacionais-da-educao-bsica` com
+19,18, acima de conjuntos legítimos de outras perguntas. Com o limiar de template
+em 18, essa pergunta sairia por correspondência direta: uma resposta confiante,
+montada da ficha, sobre um conjunto que não traz salário nenhum.
+
+**Consequência para o roteamento.** O caminho de template não tem como julgar
+pertinência: ele confia na pontuação. Por isso o limiar ficou em 20 e o
+roteamento favorece o modelo — das 14 perguntas de avaliação, 12 vão ao modelo e
+só 2 saem por template, ambas corretas. É mais caro e é o certo: gastar token à
+toa custa centavos, servir resposta confiante e errada custa a confiança.
+
+**Onde isso é tratado.** No prompt de resposta, que instrui explicitamente a
+dizer que não encontrou quando as fichas não respondem — inclusive com o exemplo
+do conjunto sobre hospitais que não traz a contagem pedida. É julgamento, e só o
+modelo pode fazê-lo.
+
+**Limitação da calibração.** O limiar de 20 foi medido sobre 14 perguntas. É
+amostra pequena demais para ser lei; revisar quando o conjunto de avaliação
+crescer.
+
+## 5. Os slugs do portal não são deriváveis do título
 
 **O que acontece.** O portal gera o identificador removendo acentos em vez de
 transliterá-los, preservando espaços duplos como hífens duplos, e distingue

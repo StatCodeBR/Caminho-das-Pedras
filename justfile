@@ -40,6 +40,13 @@ dados-full:
     cd pipeline && uv run python enriquece.py
     cd pipeline && uv run python indexa.py
 
+api:
+    cd api && uv run uvicorn app.principal:app --reload
+
+# Sobe a API sem consumir tokens nem exigir credencial
+api-stub:
+    cd api && MODO_STUB=1 uv run uvicorn app.principal:app --reload
+
 # --- qualidade -----------------------------------------------------------
 
 avalia:
