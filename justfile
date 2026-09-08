@@ -21,10 +21,17 @@ web:
 
 # --- pipeline ------------------------------------------------------------
 
+# Gasta dinheiro: o enriquecimento dos 500 custa cerca de US$ 0,90 quando o
+# cache está frio. Repetido sem mudar prompt nem metadados, sai de graça.
 dados-dev:
     cd pipeline && uv run python coleta.py --limite 500
     cd pipeline && uv run python normaliza.py
+    cd pipeline && uv run python enriquece.py --limite 500
     cd pipeline && uv run python indexa.py
+
+# Busca por linha de comando, para inspeção. Uso: just busca "sua pergunta"
+busca PERGUNTA:
+    cd pipeline && uv run python busca.py "{{PERGUNTA}}"
 
 dados-full:
     cd pipeline && uv run python coleta.py

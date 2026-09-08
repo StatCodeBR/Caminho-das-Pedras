@@ -88,6 +88,48 @@ significado sintático no FTS5 não provoquem erro nem alterem o comportamento.
 - **THEN** nenhum resultado é retornado
 - **AND** nenhum erro é gerado
 
+### Requirement: Termos comuns demais não sustentam resultado
+
+A busca SHALL descartar da consulta os termos que aparecem em fração excessiva
+do índice, medida no próprio corpus, de modo que uma pergunta cujo assunto não
+existe no catálogo retorne vazio em vez de um ranking sustentado por palavras
+de ligação.
+
+A regra existe por evidência. Como os termos são unidos por OR, a pergunta
+"onde acho dados sobre creche" — sem nenhuma ficha sobre creche no catálogo —
+devolvia dez conjuntos com aparência de resposta, casando apenas em `onde`,
+`sobre` e `dados`. Devolver o assunto errado com confiança é pior do que
+devolver nada, e envenenaria a avaliação de recuperação, que passaria a medir
+ruído em vez de acerto.
+
+O corte é relativo ao corpus, não uma lista fixa de palavras: o que é vazio
+neste catálogo (`dados`, `qual`, `registro`) não coincide com uma lista de
+stopwords do português, e muda conforme o catálogo cresce.
+
+#### Scenario: assunto ausente do catálogo
+
+- **WHEN** a consulta contém um termo de assunto que não existe no índice
+- **AND** os demais termos são palavras comuns a quase todas as fichas
+- **THEN** nenhum resultado é retornado
+
+#### Scenario: termo raro sobrevive ao descarte
+
+- **WHEN** a consulta mistura palavras comuns e um termo de assunto raro
+- **THEN** o descarte remove apenas as comuns
+- **AND** os conjuntos que casam o termo raro são retornados
+
+#### Scenario: consulta só de termos comuns
+
+- **WHEN** todos os termos da consulta são comuns demais
+- **THEN** os menos comuns são preservados
+- **AND** a busca ainda retorna resultados
+
+#### Scenario: índice pequeno demais para medir frequência
+
+- **WHEN** o índice tem menos fichas que o mínimo configurado
+- **THEN** nenhum termo é descartado
+- **AND** a consulta é executada com todos os termos
+
 ### Requirement: Resultado com posição e pontuação explícitas
 
 A busca SHALL retornar, para cada resultado, o identificador do conjunto, a
