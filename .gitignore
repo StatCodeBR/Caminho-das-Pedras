@@ -33,3 +33,7 @@ pipeline/dados/*.npy
 # Claude Code (local, não compartilhado)
 .claude/settings.local.json
 docs/historico claude/
+
+# Rascunhos e travas do LibreOffice na curadoria da avaliação
+*.bak
+.~lock.*#

@@ -1,0 +1,1 @@
+{"quando": "2026-09-08T17:23:37+00:00", "recuperacao": "lexica", "fichas": 505, "modelos": ["anthropic/claude-haiku-4-5"], "pesos": {"nome": 3.0, "perguntas": 4.0, "resumo": 1.0, "orgao": 2.0, "tags": 1.5}, "fatores": {"alta": 1.0, "media": 0.85, "baixa": 0.55}, "total": 14, "recall@5": 0.5714, "recall@10": 0.5714, "mrr": 0.4214}
