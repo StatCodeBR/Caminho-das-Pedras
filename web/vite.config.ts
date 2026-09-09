@@ -25,7 +25,17 @@ export default defineConfig({
 				mode: 'auto',
 				directives: {
 					'default-src': ['self'],
-					'script-src': ['self'],
+					// `strict-dynamic` faz a confiança vir do nonce, não do host.
+					// Sem ele, `'self'` autoriza qualquer arquivo servido pelo
+					// nosso domínio — e um upload, um JSONP ou um endpoint que
+					// devolva conteúdo controlado pelo usuário viraria vetor de
+					// execução. Cabe aqui porque a página emite uma única tag
+					// <script>, com nonce, e todo o resto entra por import()
+					// dinâmico a partir dela, herdando a confiança.
+					//
+					// `'self'` fica como reserva para navegadores que não
+					// entendem strict-dynamic; os que entendem o ignoram.
+					'script-src': ['self', 'strict-dynamic'],
 					// `unsafe-inline` só em estilo, nunca em script. Atributo
 					// `style=` não aceita nonce nem hash — a especificação do CSP
 					// não os aplica a atributos —, e o próprio SvelteKit usa um
