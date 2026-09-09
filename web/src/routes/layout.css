@@ -1,1 +1,26 @@
 @import 'tailwindcss';
+
+/*
+ * O tema do texto seguia a preferência do sistema, mas o fundo da página nunca
+ * foi definido. Em modo escuro o texto clareava e o fundo continuava o branco
+ * padrão do navegador: o Lighthouse mediu contraste de 1,09 no título — cinza
+ * claríssimo sobre branco, ilegível.
+ *
+ * Definir os dois explicitamente é o que garante o par. Deixar o fundo por
+ * conta do navegador significa depender de um comportamento que varia com
+ * extensão, versão e configuração.
+ */
+html {
+	/* Faz a interface nativa acompanhar: barra de rolagem, campos de formulário
+	   e menus de contexto seguem o mesmo tema da página. */
+	color-scheme: light dark;
+	background-color: var(--color-white);
+	color: var(--color-slate-900);
+}
+
+@media (prefers-color-scheme: dark) {
+	html {
+		background-color: var(--color-slate-950);
+		color: var(--color-slate-100);
+	}
+}

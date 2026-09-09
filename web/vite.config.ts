@@ -35,7 +35,16 @@ export default defineConfig({
 					//
 					// `'self'` fica como reserva para navegadores que não
 					// entendem strict-dynamic; os que entendem o ignoram.
-					'script-src': ['self', 'strict-dynamic'],
+					//
+					// `unsafe-inline` entra como reserva, não como permissão: a
+					// especificação manda o navegador ignorá-lo quando há nonce.
+					// Ele só tem efeito em navegadores velhos demais para
+					// entender nonce — que, sem ele, simplesmente não
+					// executariam a página. É a recomendação do próprio
+					// Lighthouse, e a ordem de precedência é o que a torna
+					// segura: nonce vence, strict-dynamic vence, e o resto é
+					// degradação para quem não entende nenhum dos dois.
+					'script-src': ['self', 'strict-dynamic', 'unsafe-inline'],
 					// `unsafe-inline` só em estilo, nunca em script. Atributo
 					// `style=` não aceita nonce nem hash — a especificação do CSP
 					// não os aplica a atributos —, e o próprio SvelteKit usa um
