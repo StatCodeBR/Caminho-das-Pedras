@@ -11,16 +11,50 @@ import json
 import sqlite3
 from typing import AsyncIterator
 
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import banco, geracao, guarda, redacao, telemetria
 from .configuracao import configuracao
+from .limites import Contencao
 from .recuperacao import Recuperado, buscar
 from .roteamento import Origem, decidir
 
 app = FastAPI(title="Caminho das Pedras", version="0.1.0")
+
+# Cabeçalho por onde o `web` repassa o endereço do visitante. A api nunca vê o
+# navegador: ela é chamada pela rota de servidor do SvelteKit, então o socket
+# dela é sempre o container do web. Confiar neste cabeçalho só é aceitável
+# porque a api não é alcançável de fora — `expose` sem `ports`, rede interna.
+# Se um dia ela for publicada, esta confiança deixa de valer.
+CABECALHO_ORIGEM = "x-origem-real"
+
+_contencao: Contencao | None = None
+
+
+def contencao() -> Contencao:
+    global _contencao
+    if _contencao is None:
+        c = configuracao()
+        _contencao = Contencao(
+            c.estado_dir / "consumo.db",
+            teto_diario=c.teto_diario_modelo,
+            maximo_por_origem=c.limite_origem_maximo,
+            janela_s=c.limite_origem_janela,
+        )
+    return _contencao
+
+
+def endereco_de(requisicao: Request) -> str:
+    """O endereço do visitante, vindo do proxy — nunca do socket."""
+    repassado = requisicao.headers.get(CABECALHO_ORIGEM, "").strip()
+    if repassado:
+        return repassado
+    # Sem o cabeçalho, resta o socket. Em produção isso significaria o
+    # container do web, então todos cairiam no mesmo balde — por isso o web
+    # sempre envia o cabeçalho, e isto é só rede de segurança para uso local.
+    return requisicao.client.host if requisicao.client else "desconhecido"
 
 # Tamanho do fragmento ao devolver texto já pronto. Pequeno o bastante para a
 # renderização parecer progressiva, grande o bastante para não inundar o canal.
@@ -71,9 +105,11 @@ def _resumo_das_fichas(fichas: list[Recuperado]) -> list[dict]:
     ]
 
 
-async def _responder(pergunta: str) -> AsyncIterator[str]:
+async def _responder(pergunta: str, reduzido: bool = False) -> AsyncIterator[str]:
     config = configuracao()
     medicao = telemetria.Medicao(pergunta=pergunta)
+    if reduzido:
+        medicao.extra["teto_diario"] = True
 
     try:
         conexao = _conexao()
@@ -116,6 +152,15 @@ async def _responder(pergunta: str) -> AsyncIterator[str]:
     if rota.origem is Origem.TEMPLATE:
         texto = redacao.montar_template(rota.fichas[0])
         async for evento in _emitir_pronto(texto, rota.origem, rota.fichas[:1], medicao):
+            yield evento
+        return
+
+    if reduzido:
+        # Teto diário atingido. A recuperação rodou inteira; o que some é a
+        # redação. Ninguém recebe erro por causa do teto — o produto fica
+        # menos conversacional, não indisponível.
+        texto = redacao.montar_sem_modelo(rota.fichas)
+        async for evento in _emitir_pronto(texto, Origem.REDUZIDO, rota.fichas, medicao):
             yield evento
         return
 
@@ -167,6 +212,10 @@ async def _emitir_do_modelo(
             )
         async for pedaco in fluxo:
             partes.append(pedaco)
+        if not config.modo_stub:
+            # Só conta o que de fato consumiu o modelo. Template, ausência e
+            # stub não entram no teto porque não custam nada.
+            contencao().registrar_chamada()
     except geracao.ModeloIndisponivel as erro:
         # Sem o modelo o produto continua útil: os conjuntos e os links saem da
         # ficha, sem redação. Pior que a resposta gerada, muito melhor que erro.
@@ -206,9 +255,25 @@ async def _emitir_do_modelo(
 
 
 @app.post("/perguntar")
-async def perguntar(corpo: Pergunta) -> StreamingResponse:
+async def perguntar(corpo: Pergunta, requisicao: Request) -> StreamingResponse:
+    veredito = contencao().avaliar(endereco_de(requisicao))
+
+    if not veredito.permitida:
+        # Recusa só acontece por abuso de origem, nunca por teto diário.
+        telemetria.logger.info(
+            f'{{"evento": "origem_recusada", "motivo": "{veredito.motivo}"}}'
+        )
+        return JSONResponse(
+            status_code=429,
+            content={
+                "erro": "muitas perguntas em pouco tempo",
+                "tente_em_segundos": veredito.espera_s,
+            },
+            headers={"retry-after": str(veredito.espera_s)},
+        )
+
     return StreamingResponse(
-        _responder(corpo.pergunta.strip()),
+        _responder(corpo.pergunta.strip(), reduzido=veredito.reduzido),
         media_type="text/event-stream",
         headers={
             "cache-control": "no-cache",
@@ -235,3 +300,14 @@ async def saude() -> dict:
     finally:
         conexao.close()
     return {"ok": True, "fichas": fichas, "modo_stub": config.modo_stub}
+
+
+@app.get("/operacao")
+async def operacao() -> dict:
+    """Consumo do dia, teto e modo corrente.
+
+    Não precisa de proteção própria: a api inteira só existe na rede interna,
+    sem domínio e sem porta publicada. O dia que ela for exposta, esta rota
+    precisa de autenticação antes de qualquer outra.
+    """
+    return contencao().estado()

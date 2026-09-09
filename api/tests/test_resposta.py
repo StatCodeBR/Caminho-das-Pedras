@@ -426,3 +426,89 @@ def test_pergunta_sem_resposta_diz_que_nao_encontrou(cliente):
 
 def test_pergunta_vazia_e_rejeitada(cliente):
     assert cliente.post("/perguntar", json={"pergunta": ""}).status_code == 422
+
+
+# --- contenção no serviço ------------------------------------------------
+
+
+@pytest.fixture
+def cliente_contido(catalogo, tmp_path, monkeypatch):
+    """Serviço com teto de 1 chamada e limite de 2 por origem."""
+    from app.configuracao import configuracao as cfg
+    import app.principal as principal
+
+    cfg.cache_clear()
+    principal._contencao = None
+    monkeypatch.setenv("BANCO", str(catalogo))
+    monkeypatch.setenv("MODO_STUB", "1")
+    monkeypatch.setenv("LIMIAR_RELEVANCIA", "0.0")
+    monkeypatch.setenv("ESTADO_DIR", str(tmp_path / "estado"))
+    monkeypatch.setenv("TETO_DIARIO_MODELO", "1")
+    monkeypatch.setenv("LIMITE_ORIGEM_MAXIMO", "2")
+    monkeypatch.setenv("LIMITE_ORIGEM_JANELA", "3600")
+
+    with TestClient(principal.app) as c:
+        yield c
+    if principal._contencao:
+        principal._contencao.fechar()
+    principal._contencao = None
+    cfg.cache_clear()
+
+
+def _perguntar(cliente, texto="dengue", ip="1.2.3.4"):
+    return cliente.post(
+        "/perguntar", json={"pergunta": texto}, headers={"x-origem-real": ip}
+    )
+
+
+def test_teto_estourado_nunca_devolve_erro(cliente_contido):
+    from app.principal import contencao
+
+    contencao().registrar_chamada()  # atinge o teto de 1
+    r = _perguntar(cliente_contido)
+    assert r.status_code == 200
+    evs = eventos(r)
+    assert fim_de(evs)["origem"] == Origem.REDUZIDO.value
+    # A recuperação continua inteira: os conjuntos vêm com seus links.
+    assert fim_de(evs)["fichas"]
+    assert "volta amanhã" in texto_de(evs)
+
+
+def test_origem_excedida_recebe_429_com_retry_after(cliente_contido):
+    _perguntar(cliente_contido)
+    _perguntar(cliente_contido)
+    r = _perguntar(cliente_contido)
+    assert r.status_code == 429
+    assert int(r.headers["retry-after"]) > 0
+
+
+def test_origens_diferentes_tem_baldes_proprios(cliente_contido):
+    _perguntar(cliente_contido, ip="1.1.1.1")
+    _perguntar(cliente_contido, ip="1.1.1.1")
+    assert _perguntar(cliente_contido, ip="1.1.1.1").status_code == 429
+    assert _perguntar(cliente_contido, ip="2.2.2.2").status_code == 200
+
+
+def test_endereco_vem_do_cabecalho_nao_do_socket(cliente_contido):
+    # Sem o cabeçalho, o TestClient seria sempre o mesmo socket e os dois
+    # visitantes cairiam no mesmo balde.
+    _perguntar(cliente_contido, ip="10.0.0.1")
+    _perguntar(cliente_contido, ip="10.0.0.1")
+    assert _perguntar(cliente_contido, ip="10.0.0.1").status_code == 429
+    assert _perguntar(cliente_contido, ip="10.0.0.2").status_code == 200
+
+
+def test_stub_nao_consome_o_teto(cliente_contido):
+    from app.principal import contencao
+
+    antes = contencao().consumo_do_dia()
+    _perguntar(cliente_contido, ip="7.7.7.7")
+    # Em modo stub nenhuma chamada ao modelo acontece, então nada é debitado.
+    assert contencao().consumo_do_dia() == antes
+
+
+def test_operacao_expoe_consumo(cliente_contido):
+    d = cliente_contido.get("/operacao").json()
+    assert d["teto"] == 1
+    assert d["limite_por_origem"] == 2
+    assert "consumo" in d and "modo_reduzido" in d

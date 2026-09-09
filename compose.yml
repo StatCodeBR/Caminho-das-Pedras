@@ -20,6 +20,16 @@ services:
       LIMIAR_TEMPLATE: ${LIMIAR_TEMPLATE:-20.0}
       MARGEM_TEMPLATE: ${MARGEM_TEMPLATE:-2.0}
       LIMIAR_RELEVANCIA: ${LIMIAR_RELEVANCIA:-3.0}
+      # Contenção de consumo. O teto nunca produz erro: ao estourar, as
+      # respostas passam a sair por template.
+      ESTADO_DIR: /estado
+      TETO_DIARIO_MODELO: ${TETO_DIARIO_MODELO:-400}
+      LIMITE_ORIGEM_MAXIMO: ${LIMITE_ORIGEM_MAXIMO:-20}
+      LIMITE_ORIGEM_JANELA: ${LIMITE_ORIGEM_JANELA:-3600}
+    volumes:
+      # O contador precisa sobreviver a reinício: um teto de gasto que zera a
+      # cada deploy não é teto. Fica fora do dados.db, que é somente leitura.
+      - estado:/estado
     # `expose` e não `ports`: alcançável só de dentro da rede, nunca do host.
     expose:
       - "8000"
@@ -47,6 +57,21 @@ services:
       # O adapter-node exige ORIGIN para validar POST; sem isso o envio da
       # pergunta é recusado como falsificação de origem.
       ORIGIN: ${ORIGIN:?defina ORIGIN com a URL pública, ex. https://caminho.exemplo.br}
+      # De onde sai o endereço do visitante. O adapter-node lê o X-Forwarded-For
+      # da DIREITA, contando XFF_DEPTH proxies confiáveis — a direção que o
+      # cliente não controla. Errar o número é grave nos dois sentidos:
+      #
+      #   só Traefik            XFF: <cliente>              -> XFF_DEPTH=1
+      #   Cloudflare + Traefik  XFF: <cliente>, <cloudflare> -> XFF_DEPTH=2
+      #
+      # Com Cloudflare e XFF_DEPTH=1, o limite contaria a Cloudflare como
+      # origem: todos os visitantes viram um endereço só e o serviço se
+      # autolimita em 20 perguntas por hora no mundo inteiro.
+      #
+      # Havendo Cloudflare, prefira ADDRESS_HEADER=cf-connecting-ip: valor
+      # único, escrito por ela, sem lista onde injetar nada.
+      ADDRESS_HEADER: ${ADDRESS_HEADER:-x-forwarded-for}
+      XFF_DEPTH: ${XFF_DEPTH:-1}
     depends_on:
       api:
         # Espera o catálogo estar legível: subir a tela antes só produziria
@@ -64,6 +89,9 @@ services:
       traefik.http.routers.caminho-web.rule: Host(`${DOMINIO:?defina DOMINIO}`)
       traefik.http.routers.caminho-web.entrypoints: websecure
       traefik.http.routers.caminho-web.tls.certresolver: letsencrypt
+
+volumes:
+  estado:
 
 networks:
   interna:

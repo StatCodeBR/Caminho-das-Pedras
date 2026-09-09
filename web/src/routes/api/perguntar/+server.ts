@@ -15,7 +15,7 @@ import type { RequestHandler } from './$types';
 
 const API_PADRAO = 'http://localhost:8000';
 
-export const POST: RequestHandler = async ({ request, fetch }) => {
+export const POST: RequestHandler = async ({ request, fetch, getClientAddress }) => {
 	let pergunta = '';
 	try {
 		const corpo = await request.json();
@@ -31,15 +31,46 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 
 	const base = env.API_URL || API_PADRAO;
 
+	// A api nunca vê o navegador: ela é chamada daqui, então o socket dela é
+	// sempre este container. Sem repassar o endereço, o limite por origem
+	// contaria todos os visitantes como um só e o serviço se autolimitaria.
+	//
+	// `getClientAddress()` lê o cabeçalho configurado em ADDRESS_HEADER, e no
+	// caso do X-Forwarded-For conta da direita conforme XFF_DEPTH — a direção
+	// que o cliente não controla. Ler da esquerda seria confiar em quem envia.
+	let origem = '';
+	try {
+		origem = getClientAddress();
+	} catch {
+		// adapter-node ergue quando ADDRESS_HEADER está configurado e ausente.
+		// Sem endereço, a api cai no socket e todos compartilham o balde: pior
+		// que o ideal, melhor que derrubar a requisição.
+		origem = '';
+	}
+
 	let resposta: Response;
 	try {
 		resposta = await fetch(`${base}/perguntar`, {
 			method: 'POST',
-			headers: { 'content-type': 'application/json' },
+			headers: {
+				'content-type': 'application/json',
+				...(origem ? { 'x-origem-real': origem } : {})
+			},
 			body: JSON.stringify({ pergunta })
 		});
 	} catch {
 		return respostaDeErro('O serviço de busca não está respondendo agora.');
+	}
+
+	if (resposta.status === 429) {
+		// Recusa por excesso de perguntas da mesma origem. Vai pelo canal SSE,
+		// em português, para a interface ter um caminho só de renderização.
+		const espera = Number(resposta.headers.get('retry-after') ?? 60);
+		const minutos = Math.max(1, Math.ceil(espera / 60));
+		return respostaDeErro(
+			`Você fez muitas perguntas em pouco tempo. Tente de novo em cerca de ${minutos} ` +
+				`${minutos === 1 ? 'minuto' : 'minutos'}.`
+		);
 	}
 
 	if (!resposta.ok || !resposta.body) {

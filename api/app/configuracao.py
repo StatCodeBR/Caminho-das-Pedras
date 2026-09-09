@@ -49,6 +49,19 @@ class Configuracao(BaseSettings):
     # que não encontrou, em vez de redigir sobre fichas que não vêm ao caso.
     limiar_relevancia: float = 3.0
 
+    # Estado gravável da contenção. Separado do dados.db, que é somente leitura
+    # por decisão da mudança 09 e não pode virar gravável para isto.
+    estado_dir: Path = RAIZ / "estado"
+
+    # Teto global de chamadas ao modelo por dia UTC. Ao estourar, o serviço
+    # responde por template — nunca com erro.
+    teto_diario_modelo: int = 400
+
+    # Limite por endereço, em janela deslizante. Ao estourar, 429: quem faz
+    # vinte perguntas numa hora não é visitante, é script.
+    limite_origem_maximo: int = 20
+    limite_origem_janela: int = 3600
+
 
 @lru_cache
 def configuracao() -> Configuracao:

@@ -100,6 +100,40 @@ def montar_ausencia() -> str:
     return "\n".join(linhas)
 
 
+def montar_sem_modelo(itens: list[Recuperado]) -> str:
+    """Resposta durante o teto diário: recuperação inteira, sem redação.
+
+    Não dizer nada faria a pessoa achar que o sistema piorou. Dizer "limite de
+    API excedido" seria despejar um problema operacional nosso em cima de quem
+    só queria achar um dado. A frase abaixo é o meio-termo honesto.
+    """
+    if not itens:
+        return montar_ausencia()
+
+    linhas = [
+        "Encontrei estes conjuntos para a sua pergunta. O texto explicando cada "
+        "um volta amanhã — hoje o serviço já atendeu o limite de perguntas "
+        "detalhadas que consegue responder por dia.",
+        "",
+    ]
+    for item in itens:
+        linhas.append(_bloco_curto(item))
+    return "\n".join(linhas)
+
+
+def _bloco_curto(item: Recuperado) -> str:
+    partes = [f"**{item.titulo or item.nome}**"]
+    if item.organizacao:
+        partes.append(f"Publicado por {item.organizacao.replace('-', ' ')}.")
+    if item.resumo:
+        partes.append(item.resumo)
+    formatos = _formatos(item)
+    if formatos:
+        partes.append(f"Formatos: {', '.join(formatos)}.")
+    partes.append(item.url_portal)
+    return "\n".join(partes) + "\n"
+
+
 def montar_reduzido(itens: list[Recuperado]) -> str:
     """Sem o modelo disponível, lista o que a busca achou, sem redigir.
 
