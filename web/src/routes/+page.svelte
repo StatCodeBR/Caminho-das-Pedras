@@ -1,6 +1,7 @@
 <script lang="ts">
 	import CartaoConjunto from '$lib/CartaoConjunto.svelte';
 	import { descreverOrigem, podeEnviar as permiteEnviar } from '$lib/apresentacao';
+	import { paraHtml } from '$lib/markdown';
 	import { lerEventos } from '$lib/sse';
 	import type { Conjunto, EventoFim, Origem } from '$lib/tipos';
 
@@ -128,10 +129,14 @@
 		{/if}
 
 		{#if resposta}
+			<!-- `@html` é seguro aqui porque `paraHtml` escapa tudo antes de
+			     inserir as próprias tags: só saem <p>, <br>, <strong> e <em>.
+			     Nenhuma âncora — endereço vindo do modelo continua texto, e os
+			     links clicáveis ficam nos cartões, onde vêm da ficha. -->
 			<div
-				class="rounded-lg border border-slate-200 bg-white p-4 whitespace-pre-wrap text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+				class="resposta rounded-lg border border-slate-200 bg-white p-4 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
 			>
-				{resposta}
+				{@html paraHtml(resposta)}
 			</div>
 		{/if}
 
@@ -156,3 +161,18 @@
 		</section>
 	{/if}
 </main>
+
+<style>
+	/* O HTML da resposta é gerado, não escrito no componente, então o Svelte
+	   não consegue escopar estas regras sozinho. */
+	.resposta :global(p) {
+		margin-bottom: 0.75rem;
+	}
+	.resposta :global(p:last-child) {
+		margin-bottom: 0;
+	}
+	/* Endereços longos não podem alargar a página no telefone. */
+	.resposta :global(p) {
+		overflow-wrap: break-word;
+	}
+</style>
