@@ -50,3 +50,8 @@ docs/historico claude/
 web/node_modules/
 web/.svelte-kit/
 web/build/
+
+# Estado de execução da contenção: contador de gasto e janela por origem.
+# É produzido pelo serviço rodando, difere entre máquinas e não descreve
+# o projeto. Em produção mora num volume, não no repositório.
+api/estado/

@@ -33,11 +33,36 @@ CAMINHO_CONJUNTOS = "/conjuntos-dados"
 CABECALHO_CHAVE = "chave-api-dados-abertos"
 
 MAX_TENTATIVAS = 5
-CONCORRENCIA = 10
+
+# Duas requisições simultâneas, não dez. Com dez, 245 páginas saíram em quatro
+# minutos e o portal cortou o acesso inteiro — a página 1 passou a devolver 405
+# com corpo HTML. Coletar o catálogo é maratona noturna, não corrida: ser gentil
+# com o servidor do órgão é o que permite terminar.
+CONCORRENCIA = 2
+
+# Pausa entre páginas, somada ao tempo da própria requisição. Com 15 conjuntos
+# por página e um detalhe por conjunto, cada página já são 16 pedidos; o
+# intervalo evita que eles se emendem num jato contínuo.
+PAUSA_ENTRE_PAGINAS = 1.5
+
 # A API devolve página vazia com status 200 em cerca de um terço dos pedidos.
 # Vazio é ruído até prova em contrário, e a prova é a repetição.
 REPETICOES_VAZIO = 6
 TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+
+# Status em que o servidor está nos recusando agora, não dizendo que a coisa
+# pedida não existe. Repetir com recuo faz sentido.
+#
+# O 403 e o 405 estão aqui por evidência: depois de 245 páginas atendidas, o
+# portal passou a responder 405 com corpo HTML a QUALQUER página, inclusive a
+# primeira. Um 405 verdadeiro — método não permitido — teria falhado na página
+# 1, porque só emitimos GET. Aquele 405 era limite de taxa vestido de erro de
+# método, e tratá-lo como permanente truncou o catálogo em 19%.
+STATUS_REPETIVEIS = (403, 405, 408, 425, 429)
+
+# Status que não melhoram com repetição: o conjunto não existe, ou o pedido está
+# malformado. Insistir só gasta tempo e paciência do servidor.
+STATUS_PERMANENTES = (400, 404, 410)
 
 AJUDA_CREDENCIAL = (
     "Defina DADOS_GOV_API_KEY antes de rodar a coleta.\n"
@@ -110,10 +135,32 @@ def _recuo_base() -> float:
     return float(os.environ.get("COLETA_RECUO_BASE", "1"))
 
 
+def _inteiro_do_ambiente(chave: str, padrao: int) -> int:
+    try:
+        return max(1, int(os.environ.get(chave, padrao)))
+    except ValueError:
+        return padrao
+
+
+def concorrencia_configurada() -> int:
+    """Requisições simultâneas. Ajustável para quando o portal estiver irritado."""
+    return _inteiro_do_ambiente("COLETA_CONCORRENCIA", CONCORRENCIA)
+
+
+def pausa_configurada() -> float:
+    """Segundos entre páginas. `_recuo_base` a zera nos testes."""
+    try:
+        pausa = float(os.environ.get("COLETA_PAUSA_PAGINA", PAUSA_ENTRE_PAGINAS))
+    except ValueError:
+        pausa = PAUSA_ENTRE_PAGINAS
+    return max(0.0, pausa) * _recuo_base()
+
+
 class ClientePortal:
     """Cliente assíncrono do portal, com recuo exponencial e concorrência presa."""
 
-    def __init__(self, cliente: httpx.AsyncClient, concorrencia: int = CONCORRENCIA):
+    def __init__(self, cliente: httpx.AsyncClient, concorrencia: int | None = None):
+        concorrencia = concorrencia or concorrencia_configurada()
         self._cliente = cliente
         self._semaforo = asyncio.Semaphore(concorrencia)
         self.recuos = 0
@@ -126,16 +173,27 @@ class ClientePortal:
             except httpx.TransportError as erro:
                 raise ErroRepetivel(f"falha de transporte: {type(erro).__name__}") from None
 
-        if resposta.status_code == 429 or resposta.status_code >= 500:
+        codigo = resposta.status_code
+        if codigo in STATUS_REPETIVEIS or codigo >= 500:
             self.recuos += 1
-            raise ErroRepetivel(f"HTTP {resposta.status_code} em {caminho}")
-        if resposta.status_code >= 400:
-            raise ErroPermanente(f"HTTP {resposta.status_code} em {caminho}")
+            raise ErroRepetivel(f"HTTP {codigo} em {caminho}")
+        if codigo in STATUS_PERMANENTES:
+            raise ErroPermanente(f"HTTP {codigo} em {caminho}")
+        if codigo >= 400:
+            # Status 4xx desconhecido: preferimos tentar de novo a desistir. O
+            # custo de uma repetição é um segundo; o de desistir cedo foi
+            # truncar o catálogo sem ninguém perceber.
+            self.recuos += 1
+            raise ErroRepetivel(f"HTTP {codigo} em {caminho}")
 
         try:
             return resposta.json()
         except ValueError:
-            raise ErroPermanente(f"resposta não é JSON em {caminho}") from None
+            # Uma API JSON que devolve outra coisa quase sempre tem um proxy ou
+            # WAF no caminho respondendo por ela — foi o que aconteceu no
+            # bloqueio: HTML no lugar do JSON. Isso passa, então vale repetir.
+            self.recuos += 1
+            raise ErroRepetivel(f"resposta não é JSON em {caminho}") from None
 
     async def pedir(self, caminho: str, params: dict[str, Any] | None = None) -> Any:
         base = _recuo_base()
@@ -284,6 +342,16 @@ class Resultado:
     vazios_repetidos: int = 0
     sementes_nao_resolvidas: int = 0
     ja_concluida: bool = False
+    # Por que o laço parou. Sem isto, coleta truncada e coleta completa terminam
+    # exatamente iguais — exit 0 e um relatório com aparência de sucesso —, e foi
+    # assim que 19% do catálogo passou por catálogo inteiro.
+    encerrou_por_falha: bool = False
+    motivo_da_falha: str = ""
+    pagina_da_falha: int = 0
+
+    @property
+    def truncada(self) -> bool:
+        return self.encerrou_por_falha
 
 
 async def coletar(
@@ -432,8 +500,19 @@ async def coletar(
                 try:
                     conjuntos = await portal.listar_confirmando({"pagina": pagina})
                 except (ErroRepetivel, ErroPermanente) as erro:
+                    # As repetições com recuo já aconteceram dentro de `pedir`.
+                    # Chegar aqui significa que elas se esgotaram: a coleta para,
+                    # mas para DECLARANDO que parou por falha. O progresso não é
+                    # marcado como concluído, então a próxima execução retoma
+                    # desta página.
                     anotar_falha(f"<pagina {pagina}>", str(erro))
-                    log(f"página {pagina} falhou, encerrando: {erro}")
+                    resultado.encerrou_por_falha = True
+                    resultado.motivo_da_falha = str(erro)
+                    resultado.pagina_da_falha = pagina
+                    log(
+                        f"página {pagina} falhou depois de {MAX_TENTATIVAS} "
+                        f"tentativas: {erro}"
+                    )
                     break
 
                 if not conjuntos:
@@ -461,6 +540,9 @@ async def coletar(
                     break
 
                 pagina += 1
+                # Respirar entre páginas. É o que separa uma coleta que termina
+                # de uma que é cortada na metade.
+                await asyncio.sleep(pausa_configurada())
 
             if limite is not None and resultado.gravados >= limite:
                 progresso.confirmar(modo, pagina - 1, concluida=True)
@@ -527,6 +609,21 @@ def main(
         f"({resultado.paginas} páginas, {resultado.falhas} falhas, "
         f"{resultado.recuos} recuos, {resultado.vazios_repetidos} vazios repetidos)"
     )
+
+    if resultado.truncada:
+        # Sair com zero aqui seria mentir: quem automatiza a coleta veria
+        # sucesso e seguiria para a normalização com um catálogo pela metade.
+        log("")
+        log("A COLETA TERMINOU POR FALHA, NÃO POR FIM DE LISTAGEM.")
+        log(f"  parou na página {resultado.pagina_da_falha}: {resultado.motivo_da_falha}")
+        log(f"  o que está em {destino.name} é PARCIAL e não representa o catálogo.")
+        log(
+            f"  o progresso ficou em aberto: rodar de novo retoma da página "
+            f"{resultado.pagina_da_falha}."
+        )
+        log("  se o portal cortou o acesso por excesso de pedidos, espere antes")
+        log("  de repetir — ou reduza COLETA_CONCORRENCIA e aumente a pausa.")
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

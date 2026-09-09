@@ -290,3 +290,141 @@ def test_chave_nunca_aparece_no_log(capsys):
     saida = capsys.readouterr().err
     assert "chave-ultrassecreta" not in saida
     assert "***" in saida
+
+
+# --- falha de página: recuo, retentativa e encerramento honesto ----------
+
+
+async def test_405_e_repetivel_nao_permanente():
+    """O 405 que derrubou a coleta era limite de taxa vestido de erro."""
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(url=LISTAGEM).mock(
+            side_effect=[
+                httpx.Response(405, html="<html>bloqueado</html>"),
+                httpx.Response(405, html="<html>bloqueado</html>"),
+                httpx.Response(200, json=[conjunto("a")]),
+            ]
+        )
+        async with httpx.AsyncClient(base_url=URL_BASE) as http:
+            portal = coleta.ClientePortal(http)
+            itens = await portal.listar({"pagina": 1})
+    # Insistiu e passou, em vez de desistir na primeira recusa.
+    assert [i["id"] for i in itens] == ["a"]
+    assert portal.recuos == 2
+
+
+async def test_html_no_lugar_de_json_e_repetivel():
+    """Corpo HTML numa API JSON é proxy respondendo pelo servidor."""
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(url=LISTAGEM).mock(
+            side_effect=[
+                httpx.Response(200, html="<html>WAF</html>"),
+                httpx.Response(200, json=[conjunto("b")]),
+            ]
+        )
+        async with httpx.AsyncClient(base_url=URL_BASE) as http:
+            portal = coleta.ClientePortal(http)
+            itens = await portal.listar({"pagina": 1})
+    assert [i["id"] for i in itens] == ["b"]
+
+
+async def test_404_continua_permanente():
+    """Conjunto inexistente não melhora com repetição; insistir é desperdício."""
+    with respx.mock(assert_all_called=False) as mock:
+        rota = mock.get(url__regex=rf"{LISTAGEM}/[^/?]+$").mock(
+            return_value=httpx.Response(404)
+        )
+        async with httpx.AsyncClient(base_url=URL_BASE) as http:
+            portal = coleta.ClientePortal(http)
+            with pytest.raises(coleta.ErroPermanente):
+                await portal.detalhar("sumido")
+        assert rota.call_count == 1
+
+
+async def test_falha_persistente_marca_coleta_como_truncada(caminhos, monkeypatch):
+    """Esgotadas as tentativas, a coleta para dizendo que parou por falha."""
+    monkeypatch.setenv("COLETA_PAUSA_PAGINA", "0")
+    with respx.mock(assert_all_called=False) as mock:
+        def responder(requisicao: httpx.Request) -> httpx.Response:
+            if int(requisicao.url.params.get("pagina", 1)) == 1:
+                return httpx.Response(200, json=[conjunto("x")])
+            return httpx.Response(405, html="<html>bloqueado</html>")
+
+        mock.get(url=LISTAGEM).mock(side_effect=responder)
+        mock.get(url__regex=rf"{LISTAGEM}/[^/?]+$").mock(
+            side_effect=lambda req: httpx.Response(
+                200, json=detalhe(req.url.path.rsplit("/", 1)[-1])
+            )
+        )
+        resultado = await coleta.coletar(chave="k", url_base=URL_BASE, **caminhos)
+
+    assert resultado.truncada is True
+    assert resultado.pagina_da_falha == 2
+    assert "405" in resultado.motivo_da_falha
+    # O progresso NÃO é marcado como concluído: a próxima execução retoma.
+    estado = json.loads(caminhos["caminho_progresso"].read_text(encoding="utf-8"))
+    assert estado["completa"]["concluida"] is False
+    assert estado["completa"]["ultima_pagina"] == 1
+
+
+async def test_fim_de_listagem_nao_e_falha(caminhos, monkeypatch):
+    """Fim legítimo continua sendo sucesso, com progresso concluído."""
+    monkeypatch.setenv("COLETA_PAUSA_PAGINA", "0")
+    with respx.mock(assert_all_called=False) as mock:
+        registrar_catalogo(mock, {1: [conjunto("x")]})
+        resultado = await coleta.coletar(chave="k", url_base=URL_BASE, **caminhos)
+
+    assert resultado.truncada is False
+    estado = json.loads(caminhos["caminho_progresso"].read_text(encoding="utf-8"))
+    assert estado["completa"]["concluida"] is True
+
+
+def test_coleta_truncada_sai_com_codigo_diferente_de_zero(caminhos, monkeypatch):
+    """Sair com zero faria a normalização seguir com catálogo pela metade."""
+    monkeypatch.setenv("COLETA_PAUSA_PAGINA", "0")
+    monkeypatch.setenv("DADOS_GOV_API_KEY", "k")
+    monkeypatch.setattr(coleta, "DIRETORIO_BRUTO", caminhos["destino"].parent)
+    with respx.mock(assert_all_called=False) as mock:
+        def responder(requisicao: httpx.Request) -> httpx.Response:
+            if int(requisicao.url.params.get("pagina", 1)) == 1:
+                return httpx.Response(200, json=[conjunto("x")])
+            return httpx.Response(405, html="<html>bloqueado</html>")
+
+        mock.get(url=LISTAGEM).mock(side_effect=responder)
+        mock.get(url__regex=rf"{LISTAGEM}/[^/?]+$").mock(
+            side_effect=lambda req: httpx.Response(
+                200, json=detalhe(req.url.path.rsplit("/", 1)[-1])
+            )
+        )
+        monkeypatch.setenv("DADOS_GOV_API_URL", URL_BASE)
+        resultado = CliRunner().invoke(coleta.app, [])
+
+    assert resultado.exit_code != 0
+    assert "POR FALHA" in resultado.output.upper()
+    assert "retoma" in resultado.output
+
+
+# --- contenção de taxa ---------------------------------------------------
+
+
+def test_concorrencia_padrao_e_duas():
+    """Dez simultâneas derrubaram o acesso; duas é a lição registrada."""
+    assert coleta.CONCORRENCIA == 2
+
+
+def test_concorrencia_ajustavel_por_ambiente(monkeypatch):
+    monkeypatch.setenv("COLETA_CONCORRENCIA", "1")
+    assert coleta.concorrencia_configurada() == 1
+    monkeypatch.setenv("COLETA_CONCORRENCIA", "lixo")
+    assert coleta.concorrencia_configurada() == coleta.CONCORRENCIA
+
+
+def test_pausa_entre_paginas_existe_por_padrao(monkeypatch):
+    monkeypatch.delenv("COLETA_PAUSA_PAGINA", raising=False)
+    monkeypatch.setenv("COLETA_RECUO_BASE", "1")
+    assert coleta.pausa_configurada() >= 1.0
+
+
+def test_pausa_zeravel_para_teste(monkeypatch):
+    monkeypatch.setenv("COLETA_PAUSA_PAGINA", "0")
+    assert coleta.pausa_configurada() == 0.0
