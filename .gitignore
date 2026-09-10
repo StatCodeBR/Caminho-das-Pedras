@@ -24,15 +24,16 @@ build/
 pipeline/bruto/
 pipeline/cache/
 pipeline/quarentena.jsonl
-pipeline/dados/*.db
-# Exceção deliberada: o dados.db da amostra é versionado porque o Dokploy
-# constrói a imagem da api a partir do clone do repositório, e o Dockerfile
-# copia o banco para dentro dela. São 4,8 MB com os 505 conjuntos.
+# Artefatos gerados pelo pipeline. Banco de dados gerado não é código-fonte:
+# é resultado de uma execução, e o Git guarda cada versão inteira para sempre,
+# porque SQLite reorganiza as páginas a cada escrita e não delta-comprime.
 #
-# Isto tem teto: o catálogo completo dá cerca de 155 MB, acima do limite de
-# 100 MB por arquivo do GitHub. Antes da coleta completa, trocar por imagem
-# publicada em registry — o compose passa a usar `image:` em vez de `build:`.
-!pipeline/dados/dados.db
+# O catálogo é distribuído como asset de release, comprimido. O repositório
+# guarda só a soma de verificação e o manifesto; a imagem baixa e confere.
+pipeline/dados/*.db
+pipeline/dados/*.db-journal
+pipeline/dados/*.db-wal
+pipeline/dados/*.db-shm
 pipeline/dados/*.npy
 
 # Modelos baixados
