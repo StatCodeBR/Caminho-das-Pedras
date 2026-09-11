@@ -1,15 +1,15 @@
 pergunta,termo_que_funcionou,conjuntos_aceitaveis,tema,dificuldade,portal_encontrou
-onde tem posto de saúde em são paulo,posto de saúde,cgeo_vw_razao_medicos_sus_1000_hab,saude,media,nao
-quantos hospitais tem na minha cidade,quantos hospitais,nenhum,saude,media,nao
-quantas pessoas não sobrevivem quando são internadas na UTI,mortalidade uti  ,mortalidade-da-internacao-hospitalar-na-uti; mortalidade-da-internacao-hospitalar-na-uti-hupes; mortalidade-da-internacao-hospitalar-hupes,saude,media,nao
-quantas pessoas pegaram dengue na minha cidade no ano passado,dengue,arboviroses-dengue; dados-da-saude; siasi_modulo_morbidades_dados_arboviroses; casos-confirmados-de-doencas-de-notificacao-compulsoria,saude,media,nao
-quanto tempo demora para conseguir uma cirurgia pelo SUS,fila de cirurgia,quantidade-de-pacientes-em-fila-cirurgica; mgdi-agora-tem-especialistas-componente-cirurgias,saude,media,nao
-quantas pessoas estão esperando atendimento no SUS,lista de espera SUS,listas-de-espera-no-sus; n-de-pacientes-em-lista-de-espera-cirurgica-por-especialidade; lista-de-espera--cirrgica-,saude,media,nao
-as escolas públicas da minha cidade vão bem,ideb,ensino-basico-ideb-brasil; ideb-brasil; ensino-basico-ideb-por-estados,educacao,dificil,nao
+onde tem posto de saúde em são paulo,posto de saúde,cgeo_vw_razao_medicos_sus_1000_hab;,saude,media,nao
+quantos hospitais tem na minha cidade,quantos hospitais,hospitais-e-leitos,saude,media,nao
+quantas pessoas não sobrevivem quando são internadas na UTI,mortalidade uti  ,mortalidade-da-internacao-hospitalar-na-uti; mortalidade-da-internacao-hospitalar-na-uti-hupes; mortalidade-da-internacao-hospitalar-hupes;,saude,media,nao
+quantas pessoas pegaram dengue na minha cidade no ano passado,dengue,arboviroses-dengue; dados-da-saude; siasi_modulo_morbidades_dados_arboviroses; casos-confirmados-de-doencas-de-notificacao-compulsoria;,saude,media,nao
+quanto tempo demora para conseguir uma cirurgia pelo SUS,fila de cirurgia,quantidade-de-pacientes-em-fila-cirurgica; mgdi-agora-tem-especialistas-componente-cirurgias;,saude,media,nao
+quantas pessoas estão esperando atendimento no SUS,lista de espera SUS,listas-de-espera-no-sus; n-de-pacientes-em-lista-de-espera-cirurgica-por-especialidade; lista-de-espera--cirrgica-;,saude,media,nao
+as escolas públicas da minha cidade vão bem,ideb,ensino-basico-ideb-brasil; ideb-brasil; ensino-basico-ideb-por-estados;,educacao,dificil,nao
 quantos professores tem no Brasil,,nenhum,educacao,dificil,nao
-quem ganhou as licitações de São Paulo,,licitacoes3; contratos4,dinheiro_publico,media,sim
-quanto o governo gasta com publicidade e propaganda,quanto o governo gasta com propaganda,gastos-com-publicidade,dinheiro_publico,facil,sim
-quanto ganha um professor em média no Brasil,,nenhum,trabalho_e_renda,facil,nao
-onde acontecem mais casos de agressão contra mulheres,dados de violência contra a mulher por estado,registros-de-violencia-contra-a-mulher-no-estado-do-rio-grande-do-sul; violencia_ses2; violencia-contra-mulher; sala-lilas-arsal; dashboards-tematicos-e-interativos,seguranca,media,nao
-a água que chega na minha casa é boa,qualidade da água de São Paulo,seguranca-hidrica-qualidade-ambiental-do-ar-agua-e-solo,meio_ambiente_e_clima,dificil,nao
-minha cidade já teve enchente registrada,enchente,municipios-atingidos-por-eventos-de-inundacao-em-201510,meio_ambiente_e_clima,media,nao
+quem ganhou as licitações de São Paulo,,licitacoes3; contratos4;,dinheiro_publico,media,sim
+quanto o governo gasta com publicidade e propaganda,quanto o governo gasta com propaganda,gastos-com-publicidade;,dinheiro_publico,facil,sim
+quanto ganha um professor em média no Brasil,,indicadores-educacionais-da-educao-bsica,trabalho_e_renda,facil,nao
+onde acontecem mais casos de agressão contra mulheres,dados de violência contra a mulher por estado,registros-de-violencia-contra-a-mulher-no-estado-do-rio-grande-do-sul; violencia_ses2; violencia-contra-mulher; sala-lilas-arsal; dashboards-tematicos-e-interativos;,seguranca,media,nao
+a água que chega na minha casa é boa,qualidade da água de São Paulo,seguranca-hidrica-qualidade-ambiental-do-ar-agua-e-solo;,meio_ambiente_e_clima,dificil,nao
+minha cidade já teve enchente registrada,enchente,municipios-atingidos-por-eventos-de-inundacao-em-201510;,meio_ambiente_e_clima,media,nao
