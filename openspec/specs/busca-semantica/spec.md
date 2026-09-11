@@ -1,6 +1,18 @@
 # Busca semântica
 
-## ADDED Requirements
+## Purpose
+
+Encontrar o conjunto certo quando a pessoa e o catálogo usam palavras diferentes
+para a mesma coisa — "remédio de graça" contra "assistência farmacêutica",
+"creche" contra "educação infantil". É complemento da busca léxica, não seu
+substituto: perde para ela em sigla, nome próprio e termo exato, e acerta
+justamente onde ela erra. As duas convivem, e a fusão as combina.
+
+Os vetores são gerados offline, no pipeline, sobre o texto indexável das fichas.
+O serviço de consulta só vetoriza a pergunta, com um runtime leve verificado como
+equivalente ao de geração.
+
+## Requirements
 
 ### Requirement: Vetores gerados para todas as fichas
 
@@ -77,6 +89,13 @@ O serviço de consulta SHALL recusar-se a iniciar quando o número de vetores n�
 corresponder ao número de fichas ou quando os artefatos forem de versões
 diferentes.
 
+Até que a fusão de rankings passe a consumir a busca semântica, os vetores SHALL
+ser opcionais no serviço: ausentes, ele inicia com a busca semântica desligada e
+informa esse estado na verificação de saúde. A recusa vale para vetores
+presentes e inconsistentes. Ausência não é inconsistência, e derrubar o serviço
+por uma capacidade que nenhuma resposta usa ainda trocaria disponibilidade por
+nada.
+
 #### Scenario: contagem divergente
 
 - **WHEN** o número de vetores difere do número de fichas
@@ -87,6 +106,18 @@ diferentes.
 
 - **WHEN** vetores e banco declaram versões distintas do catálogo
 - **THEN** o serviço não inicia
+
+#### Scenario: vetores de outro modelo
+
+- **WHEN** os vetores declaram um modelo diferente do usado para vetorizar a
+      consulta
+- **THEN** o serviço não inicia
+
+#### Scenario: vetores ausentes
+
+- **WHEN** o serviço inicia sem os arquivos de vetores
+- **THEN** ele inicia normalmente, com a busca semântica desligada
+- **AND** a verificação de saúde informa que a busca semântica está desligada
 
 ### Requirement: Resultado no mesmo formato da busca léxica
 

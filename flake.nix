@@ -42,7 +42,11 @@
             # uv baixa CPython pré-compilado que não roda no NixOS.
             UV_PYTHON_DOWNLOADS = "never";
             UV_PYTHON = "${python}/bin/python3";
-            LD_LIBRARY_PATH = libs;
+            # O driver da NVIDIA mora em /run/opengl-driver/lib no NixOS. Sem ele
+            # no caminho, o torch não enxerga a GPU e vetoriza na CPU, quatro
+            # vezes mais devagar, sem avisar. Em máquina sem GPU o diretório não
+            # existe e a entrada é inofensiva.
+            LD_LIBRARY_PATH = "/run/opengl-driver/lib:${libs}";
             # Cache do modelo ONNX dentro do projeto, espelhando o container.
             FASTEMBED_CACHE_PATH = "./.cache/fastembed";
           };

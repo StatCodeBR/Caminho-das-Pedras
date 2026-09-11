@@ -161,6 +161,35 @@ class ErroDePublicacao(RuntimeError):
     """Falha antes ou durante o envio à release."""
 
 
+# Os dois lados da paridade: o runtime que gera os vetores e o que vetoriza a
+# pergunta. Cada um só pode ser testado dentro do próprio projeto — a api não
+# pode carregar torch —, então a verificação roda um pytest em cada.
+PROJETOS_PARIDADE = (RAIZ, REPOSITORIO / "api")
+
+
+def verificar_paridade() -> None:
+    """Os dois runtimes ainda produzem o mesmo vetor? Sem isso, não se publica.
+
+    Divergência entre eles não quebra a busca de forma visível: ela degrada, em
+    silêncio, e o erro seria atribuído ao prompt ou aos dados. Publicar um
+    catálogo nesse estado espalharia o defeito para a produção.
+    """
+    for projeto in PROJETOS_PARIDADE:
+        resultado = subprocess.run(
+            ["uv", "run", "pytest", "-m", "paridade", "-q"],
+            cwd=projeto,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if resultado.returncode != 0:
+            raise ErroDePublicacao(
+                f"a paridade entre os runtimes falhou em {projeto.name}/; "
+                "nenhum catálogo é publicado nesse estado.\n"
+                + (resultado.stdout or resultado.stderr)[-2000:]
+            )
+
+
 def arvore_suja() -> list[str]:
     """Arquivos modificados ou não rastreados, que impedem a publicação.
 
@@ -304,6 +333,14 @@ def main(
             if len(sujos) > 10:
                 log(f"  … e mais {len(sujos) - 10}")
             log("commite antes, ou use --permitir-sujo se souber o que está fazendo.")
+            raise typer.Exit(code=1)
+
+    if publicar:
+        log("verificando a paridade entre os runtimes de geração e de consulta...")
+        try:
+            verificar_paridade()
+        except ErroDePublicacao as erro:
+            log(str(erro))
             raise typer.Exit(code=1)
 
     log(f"comprimindo {banco} ({banco.stat().st_size / 1e6:.1f} MB)...")

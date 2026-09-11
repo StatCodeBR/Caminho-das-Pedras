@@ -20,7 +20,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 import typer
 
@@ -43,6 +43,10 @@ AUSENCIA = "nenhum"
 # Queda de recall@5 tolerada antes de a execução falhar. Acima disto, uma
 # mudança aparentemente inofensiva nos pesos ou no prompt degradou a busca.
 LIMIAR_REGRESSAO = 0.05
+
+# As recuperações que a avaliação sabe medir. Cada uma se compara só consigo
+# mesma no histórico: a diferença entre elas é de método, não regressão.
+RECUPERACOES = ("lexica", "semantica")
 
 
 def log(mensagem: object) -> None:
@@ -163,12 +167,20 @@ def medir(avaliadas: Iterable[Avaliada]) -> Metricas:
 
 
 def avaliar(
-    conexao: sqlite3.Connection, perguntas: list[Pergunta]
+    conexao: sqlite3.Connection,
+    perguntas: list[Pergunta],
+    buscar: Callable[[sqlite3.Connection, str, int], list[Any]] | None = None,
 ) -> list[Avaliada]:
-    """Roda a recuperação para cada pergunta. Determinística por construção."""
+    """Roda a recuperação para cada pergunta. Determinística por construção.
+
+    `buscar` escolhe qual recuperação é avaliada; o padrão é a léxica. As duas
+    devolvem o mesmo formato, então o resto da avaliação não sabe qual rodou —
+    e é isso que torna os números comparáveis.
+    """
+    buscar = buscar or busca.buscar
     avaliadas: list[Avaliada] = []
     for pergunta in perguntas:
-        resultados = busca.buscar(conexao, pergunta.texto, LIMITE_BUSCA)
+        resultados = buscar(conexao, pergunta.texto, LIMITE_BUSCA)
         avaliadas.append(
             Avaliada(
                 pergunta=pergunta,
@@ -210,7 +222,13 @@ def anotacoes_ausentes(conexao: sqlite3.Connection, perguntas: list[Pergunta]) -
 # --- histórico -----------------------------------------------------------
 
 
-def ler_ultima(caminho: Path) -> dict[str, Any] | None:
+def ler_ultima(caminho: Path, recuperacao: str | None = None) -> dict[str, Any] | None:
+    """A execução mais recente — da mesma recuperação, quando indicada.
+
+    Comparar a semântica com a última léxica acusaria regressão, ou melhora,
+    que é só diferença de método. Cada recuperação se compara consigo mesma.
+    Registros de antes de haver mais de uma são léxicos.
+    """
     if not caminho.is_file():
         return None
     ultima = None
@@ -219,9 +237,12 @@ def ler_ultima(caminho: Path) -> dict[str, Any] | None:
         if not linha:
             continue
         try:
-            ultima = json.loads(linha)
+            registro = json.loads(linha)
         except ValueError:
             continue
+        if recuperacao and registro.get("recuperacao", "lexica") != recuperacao:
+            continue
+        ultima = registro
     return ultima
 
 
@@ -231,19 +252,26 @@ def gravar_execucao(caminho: Path, registro: dict[str, Any]) -> None:
         arquivo.write(json.dumps(registro, ensure_ascii=False) + "\n")
 
 
-def versao_da_recuperacao(conexao: sqlite3.Connection) -> dict[str, Any]:
+def versao_da_recuperacao(
+    conexao: sqlite3.Connection, recuperacao: str = "lexica", indice: Any = None
+) -> dict[str, Any]:
     """O que identifica a recuperação avaliada, para o histórico ser comparável."""
     fichas = conexao.execute("SELECT count(*) FROM ficha").fetchone()[0]
     modelos = sorted(
         linha[0] for linha in conexao.execute("SELECT DISTINCT modelo FROM ficha")
     )
-    return {
-        "recuperacao": "lexica",
+    versao: dict[str, Any] = {
+        "recuperacao": recuperacao,
         "fichas": fichas,
         "modelos": modelos,
-        "pesos": busca.pesos(),
-        "fatores": busca.fatores(),
     }
+    if recuperacao == "semantica" and indice is not None:
+        versao["modelo_embedding"] = indice.modelo
+        versao["versao_vetores"] = indice.versao[:16]
+    else:
+        versao["pesos"] = busca.pesos()
+        versao["fatores"] = busca.fatores()
+    return versao
 
 
 # --- relatório -----------------------------------------------------------
@@ -262,9 +290,11 @@ def imprimir_relatorio(
     geral: Metricas,
     anterior: dict[str, Any] | None,
     quebradas: list[str],
+    recuperacao: str = "lexica",
 ) -> None:
     log("")
     log("relatório de avaliação da recuperação")
+    log(f"  recuperação:      {recuperacao}")
     log(f"  perguntas:        {geral.total}")
     ausencia = [a for a in avaliadas if a.pergunta.espera_ausencia]
     if ausencia:
@@ -343,8 +373,14 @@ def main(
     registrar: bool = typer.Option(
         True, "--registrar/--sem-registrar", help="Acrescenta ao histórico."
     ),
+    recuperacao: str = typer.Option(
+        "lexica", "--recuperacao", help="Qual recuperação avaliar: lexica ou semantica."
+    ),
 ) -> None:
     """Mede recall@5, recall@10 e MRR da recuperação."""
+    if recuperacao not in RECUPERACOES:
+        log(f"recuperação desconhecida: {recuperacao!r}. Conhecidas: {', '.join(RECUPERACOES)}")
+        raise typer.Exit(code=2)
     if not banco.is_file():
         log(f"banco não encontrado: {banco}")
         raise typer.Exit(code=2)
@@ -361,15 +397,35 @@ def main(
         if not lista:
             log("nenhuma pergunta no conjunto de avaliação")
             raise typer.Exit(code=2)
-        avaliadas = avaliar(conexao, lista)
+        buscar: Callable[[sqlite3.Connection, str, int], list[Any]] | None = None
+        indice: Any = None
+        if recuperacao == "semantica":
+            # Import tardio: a avaliação léxica não deve pagar a carga do numpy,
+            # e muito menos a do modelo.
+            import embeddings
+            import semantica
+
+            try:
+                indice = semantica.carregar(conexao)
+            except semantica.IndiceInconsistente as erro:
+                log(str(erro))
+                raise typer.Exit(code=2)
+            vetorizador = embeddings.Vetorizador()
+
+            def _semantica(con: sqlite3.Connection, texto: str, limite: int) -> list[Any]:
+                return semantica.buscar(con, indice, vetorizador, texto, limite)
+
+            buscar = _semantica
+
+        avaliadas = avaliar(conexao, lista, buscar)
         geral = medir(avaliadas)
         quebradas = anotacoes_ausentes(conexao, lista)
-        versao = versao_da_recuperacao(conexao)
+        versao = versao_da_recuperacao(conexao, recuperacao, indice)
     finally:
         conexao.close()
 
-    anterior = ler_ultima(historico)
-    imprimir_relatorio(avaliadas, geral, anterior, quebradas)
+    anterior = ler_ultima(historico, recuperacao)
+    imprimir_relatorio(avaliadas, geral, anterior, quebradas, recuperacao)
 
     if registrar:
         gravar_execucao(

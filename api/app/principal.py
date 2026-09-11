@@ -9,19 +9,67 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import banco, geracao, guarda, redacao, telemetria
+from . import banco, geracao, guarda, redacao, semantica, telemetria
 from .configuracao import configuracao
 from .limites import Contencao
 from .recuperacao import Recuperado, buscar
 from .roteamento import Origem, decidir
 
-app = FastAPI(title="Caminho das Pedras", version="0.1.0")
+# Estado da busca semântica, decidido na inicialização. Opcional até a fusão
+# (mudança 08), que é a primeira a consumi-la: sem vetores, o serviço sobe com
+# ela desligada e o /saude diz isso. Com vetores inconsistentes, ele não sobe —
+# vetor de outra versão do catálogo apontaria para o conjunto errado sem sintoma
+# nenhum, e a fusão trataria esse erro como resultado.
+_semantica: semantica.Indice | None = None
+_motivo_semantica = "não inicializada"
+
+
+def _preparar_semantica() -> None:
+    global _semantica, _motivo_semantica
+    config = configuracao()
+    vetores_em = config.vetores
+    ids_em = vetores_em.with_suffix(".json")
+    _semantica = None
+    # Nenhum dos dois arquivos: a semântica não foi instalada, e isso é estado
+    # legítimo. Só um deles: artefato órfão — `carregar` recusa, como deve.
+    if not vetores_em.exists() and not ids_em.exists():
+        _motivo_semantica = "vetores ausentes"
+        return
+    try:
+        conexao = banco.abrir(config.banco)
+    except banco.CatalogoIndisponivel:
+        # Sem catálogo não há contra o que conferir. O /saude já reporta o
+        # catálogo indisponível; derrubar o serviço aqui esconderia o diagnóstico.
+        _motivo_semantica = "catálogo indisponível"
+        return
+    try:
+        # IndiceInconsistente propaga de propósito: é o que impede a subida.
+        _semantica = semantica.carregar(conexao, vetores_em, ids_em)
+    finally:
+        conexao.close()
+    _motivo_semantica = "ativa"
+
+
+def estado_semantica() -> dict:
+    if _semantica is None:
+        return {"ativa": False, "motivo": _motivo_semantica}
+    return {"ativa": True, "vetores": len(_semantica.ids), "modelo": _semantica.modelo}
+
+
+@asynccontextmanager
+async def _ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
+    _preparar_semantica()
+    yield
+
+
+app = FastAPI(title="Caminho das Pedras", version="0.1.0", lifespan=_ciclo_de_vida)
 
 # Cabeçalho por onde o `web` repassa o endereço do visitante. A api nunca vê o
 # navegador: ela é chamada pela rota de servidor do SvelteKit, então o socket
@@ -299,7 +347,12 @@ async def saude() -> dict:
         fichas = conexao.execute("SELECT count(*) FROM ficha").fetchone()[0]
     finally:
         conexao.close()
-    return {"ok": True, "fichas": fichas, "modo_stub": config.modo_stub}
+    return {
+        "ok": True,
+        "fichas": fichas,
+        "modo_stub": config.modo_stub,
+        "busca_semantica": estado_semantica(),
+    }
 
 
 @app.get("/operacao")

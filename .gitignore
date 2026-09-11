@@ -35,12 +35,19 @@ pipeline/dados/*.db-journal
 pipeline/dados/*.db-wal
 pipeline/dados/*.db-shm
 pipeline/dados/*.npy
+# A lista de identificadores dos vetores. Gerada junto do `.npy`, na mesma
+# execução, e amarrada a ele por soma: versionar só um dos dois seria pior do
+# que não versionar nenhum.
+pipeline/dados/vectors.json
+pipeline/dados/*.tmp
 # O artefato comprimido que vai para a release. Ele é o que *não* deve estar
 # aqui: versioná-lo seria exatamente o problema que a release resolve.
 pipeline/dados/*.gz
 
-# Modelos baixados
-.cache/fastembed/
+# Modelos baixados. Com barra no meio, o padrão ficaria ancorado na raiz — e o
+# FASTEMBED_CACHE_PATH é relativo ao diretório de onde se roda: rodando da api/,
+# o modelo de 470 MB cai em api/.cache/ e escaparia do .gitignore.
+**/.cache/fastembed/
 
 # Claude Code (local, não compartilhado)
 .claude/settings.local.json

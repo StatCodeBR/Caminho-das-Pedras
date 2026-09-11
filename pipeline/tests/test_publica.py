@@ -228,3 +228,31 @@ def test_manifesto_sem_soma_e_recusado(tmp_path):
     resultado = _obter({"versao": "v", "origem": "https://exemplo.invalido/x"}, tmp_path)
     assert resultado.returncode == 1
     assert "sha256" in resultado.stderr
+
+
+# --- porta de paridade ---------------------------------------------------
+
+
+def test_paridade_divergente_impede_a_publicacao(monkeypatch):
+    chamadas = []
+
+    def run_falso(argumentos, **opcoes):
+        chamadas.append((argumentos, opcoes.get("cwd")))
+        return subprocess.CompletedProcess(argumentos, 1, stdout="1 failed", stderr="")
+
+    monkeypatch.setattr(publica.subprocess, "run", run_falso)
+    with pytest.raises(publica.ErroDePublicacao, match="paridade"):
+        publica.verificar_paridade()
+    assert chamadas[0][0] == ["uv", "run", "pytest", "-m", "paridade", "-q"]
+
+
+def test_paridade_confirmada_nos_dois_projetos_libera(monkeypatch):
+    projetos = []
+
+    def run_falso(argumentos, **opcoes):
+        projetos.append(opcoes.get("cwd").name)
+        return subprocess.CompletedProcess(argumentos, 0, stdout="1 passed", stderr="")
+
+    monkeypatch.setattr(publica.subprocess, "run", run_falso)
+    publica.verificar_paridade()
+    assert projetos == ["pipeline", "api"]

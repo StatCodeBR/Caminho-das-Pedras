@@ -1,5 +1,19 @@
 # Tarefas — fundir rankings
 
+## Distribuição (herdada da mudança 07)
+
+A 07 deixou a busca semântica opcional no serviço: sem vetores, ele sobe com ela
+desligada. A fusão é a primeira a consumi-la em produção, então é aqui que
+vetores e modelo precisam chegar à imagem. A spec desta mudança ainda não cobre
+isso e precisa ser emendada antes da implementação.
+
+- [ ] Publicar `vectors.npy` e `vectors.json` na release, com soma própria no
+      `catalogo.json`
+- [ ] Baixar e conferir os vetores no build da imagem, como já se faz com o banco
+- [ ] Levar o modelo ONNX (470 MB) para a imagem no build, sem download em
+      tempo de resposta
+- [ ] Tornar os vetores obrigatórios no serviço: ausentes, ele não sobe
+
 ## Execução
 
 - [ ] Executar busca léxica e semântica em paralelo

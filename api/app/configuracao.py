@@ -13,12 +13,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 RAIZ = Path(__file__).resolve().parent.parent
 BANCO_PADRAO = RAIZ.parent / "pipeline" / "dados" / "dados.db"
+VETORES_PADRAO = RAIZ.parent / "pipeline" / "dados" / "vectors.npy"
 
 
 class Configuracao(BaseSettings):
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     banco: Path = BANCO_PADRAO
+
+    # Vetores da busca semântica; a lista de identificadores mora ao lado, com
+    # o mesmo nome e extensão `.json`. Opcionais até a fusão (mudança 08): sem
+    # eles o serviço sobe com a semântica desligada e diz isso no /saude.
+    # Presentes e inconsistentes com o banco, o serviço não sobe — vetor de outra
+    # versão do catálogo apontaria para o conjunto errado sem sintoma nenhum.
+    vetores: Path = VETORES_PADRAO
     modo_stub: bool = False
     anthropic_api_key: str = ""
     modelo: str = "claude-haiku-4-5"

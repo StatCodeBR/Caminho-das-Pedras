@@ -45,6 +45,7 @@ dados-dev:
     cd pipeline && uv run python normaliza.py
     cd pipeline && uv run python enriquece.py --limite 500
     cd pipeline && uv run python indexa.py
+    just vetores
 
 # Busca por linha de comando, para inspeção. Uso: just busca "sua pergunta"
 busca PERGUNTA:
@@ -56,6 +57,20 @@ dados-full:
     cd pipeline && uv run python saude.py
     cd pipeline && uv run python enriquece.py
     cd pipeline && uv run python indexa.py
+    just vetores
+
+# Vetores da busca semântica: cerca de dois minutos e meio na GPU para o
+# catálogo completo, uns dez na CPU. O NixOS expõe o driver da NVIDIA em
+# /run/opengl-driver/lib, fora do caminho padrão — sem isto o torch não enxerga
+# a placa e cai para a CPU sem avisar.
+vetores:
+    cd pipeline && LD_LIBRARY_PATH="/run/opengl-driver/lib:${LD_LIBRARY_PATH:-}" uv run python vetoriza.py
+
+# Os dois runtimes ainda produzem o mesmo vetor? `catalogo-publica` já roda isto
+# e recusa publicar se falhar; o alvo existe para conferir antes.
+paridade-vetores:
+    cd pipeline && uv run pytest -m paridade -q
+    cd api && uv run pytest -m paridade -q
 
 # --- catálogo ------------------------------------------------------------
 
@@ -80,8 +95,9 @@ catalogo-baixa:
 
 # --- qualidade -----------------------------------------------------------
 
-avalia:
-    cd pipeline && uv run python avalia.py
+# Uso: just avalia, ou just avalia --recuperacao semantica
+avalia *ARGS:
+    cd pipeline && uv run python avalia.py {{ARGS}}
 
 spec:
     openspec validate --changes --strict
