@@ -21,7 +21,7 @@ from typing import Any
 
 import typer
 
-from indexa import COLUNAS
+from indexa import COLUNAS, COLUNAS_MEDIDAS
 
 RAIZ = Path(__file__).resolve().parent
 DIRETORIO_DADOS = RAIZ / "dados"
@@ -55,6 +55,12 @@ FATORES_PADRAO: dict[str, float] = {"alta": 1.0, "media": 0.85, "baixa": 0.55}
 #   ————————————————— vão ——————————————————
 #   minha 8.8%  cidade 5%  gastos 3%  dengue 1.2%  aeroportos 0.8%
 # Acima do vão só há palavra de pergunta; abaixo, só assunto.
+#
+# No catálogo completo o vão fechou, e a correção foi tirar `tags` da conta
+# (ver COLUNAS_MEDIDAS), não mexer aqui. Recalibrar não substituía: a varredura
+# de 0,10 a 0,50 sobre o conjunto de avaliação não tem joelho — de 0,15 a 0,50
+# ganham-se 7 termos úteis ao custo de 28 de ruído, em reta. Distribuição sem
+# vão não se conserta movendo a linha de corte.
 LIMIAR_TERMO_COMUM = 0.15
 
 # Abaixo disto a frequência não é evidência de nada: num índice de três fichas,
@@ -108,10 +114,20 @@ def _literal(palavra: str) -> str:
     return f'"{palavra.replace(chr(34), chr(34) * 2)}"'
 
 
+def _so_texto_natural(palavra: str) -> str:
+    """Restringe o casamento às colunas escritas por gente, não por rótulo."""
+    return f"{{{' '.join(COLUNAS_MEDIDAS)}}} : {_literal(palavra)}"
+
+
 def frequencia(conexao: sqlite3.Connection, palavra: str) -> int:
-    """Em quantas fichas a palavra aparece."""
+    """Em quantas fichas a palavra aparece no texto natural.
+
+    A coluna `tags` não entra na conta: ver `COLUNAS_MEDIDAS`. Contá-la fazia
+    `financas` valer 40,2% do corpus com 100% disso vindo de rótulo de tema.
+    """
     return conexao.execute(
-        "SELECT count(*) FROM ficha_fts WHERE ficha_fts MATCH ?", (_literal(palavra),)
+        "SELECT count(*) FROM ficha_fts WHERE ficha_fts MATCH ?",
+        (_so_texto_natural(palavra),),
     ).fetchone()[0]
 
 
@@ -125,9 +141,9 @@ def descartar_comuns(conexao: sqlite3.Connection, palavras: list[str]) -> list[s
     com confiança é pior do que devolver nada, e envenenaria a avaliação de
     recuperação, que mediria ruído em vez de acerto.
 
-    O corte é medido no corpus, não numa lista fixa: um termo é comum se está em
-    mais de 30% das fichas. Se todos forem comuns, ficam os menos comuns — a
-    pergunta ainda merece uma resposta.
+    O corte é medido no corpus, não numa lista fixa: um termo é comum se está no
+    texto natural de mais fichas do que `LIMIAR_TERMO_COMUM` permite. Se todos
+    forem comuns, ficam os menos comuns — a pergunta ainda merece uma resposta.
     """
     total = conexao.execute("SELECT count(*) FROM ficha_fts").fetchone()[0]
     minimo = _float_do_ambiente("BUSCA_MINIMO_PARA_FILTRAR", MINIMO_PARA_FILTRAR)

@@ -33,6 +33,21 @@ TOKENIZADOR = "unicode61 remove_diacritics 2"
 # os pesos do bm25() são posicionais.
 COLUNAS = ("nome", "perguntas", "resumo", "orgao", "tags")
 
+# As colunas em que o texto foi escrito por gente — quem publicou o dado, ou o
+# modelo redigindo a ficha. São as únicas que servem para medir se uma palavra é
+# comum demais para discriminar.
+#
+# `tags` fica de fora porque é aqui que a indexação escreve os rótulos do nosso
+# próprio vocabulário controlado de temas, e contá-los faz a frequência medir
+# como *nós classificamos* em vez de como as pessoas falam: no catálogo completo
+# `financas` aparece em 40,2% das fichas com 100% dessas ocorrências vindas de
+# tags, e `economia` em 40,5% com 99%. Ambas são palavras de assunto — o que o
+# cidadão digita — e o filtro as descartava por artefato nosso.
+#
+# A coluna continua indexada, buscável e pesada no bm25. Ela apenas não vota em
+# quem é palavra banal.
+COLUNAS_MEDIDAS = tuple(c for c in COLUNAS if c != "tags")
+
 DDL_INDICE = f"""
 DROP TABLE IF EXISTS ficha_fts;
 

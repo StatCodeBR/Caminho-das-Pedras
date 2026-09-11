@@ -136,3 +136,58 @@ colado no valor. Os conjuntos correspondentes nunca entraram na amostra, e como
 as quatro eram citadas em `perguntas.csv`, mediriam recall artificialmente baixo
 por erro de digitação, não por falha da busca. Corrigido em 2026-09-07; as 67
 sementes resolvem.
+
+## 6. A frequência de termo mede o autor do corpus, não a língua
+
+**O que acontece.** O filtro de termo comum decide o que descartar da pergunta
+pela fração de fichas em que a palavra aparece. Com 505 fichas essa medida
+separava limpo palavra de função de palavra de assunto. Com 19.958 o vão fechou,
+e três causas distintas se somaram.
+
+A primeira foi corrigida: os rótulos do vocabulário controlado de temas, que a
+indexação escreve na coluna `tags`, inflavam palavras de assunto até acima do
+corte — `financas` em 40,2% das fichas com 100% disso vindo de tags, `economia`
+em 40,5% com 99%. A frequência passou a ser medida só nas colunas de texto
+natural, e `financas` caiu para 0,2%.
+
+**As duas que continuam.**
+
+*Cacoete do modelo.* `longo` aparece em 25,5% das fichas, 4.377 delas com a
+palavra numa pergunta de exemplo: é "ao longo do tempo", escrito milhares de
+vezes pelo mesmo modelo com o mesmo prompt. Um corpus de 19.455 documentos de
+autoria única tem tiques que a estatística lê como gramática. Só se resolve
+variando prompt ou modelo, e o efeito é pequeno: são palavras que de fato não
+discriminam.
+
+*Concentração real do catálogo.* `banco` em 22,9% e `central` em 21,5%, quase
+tudo em nome de órgão — o BCB publica mesmo um quinto do acervo. Aqui o filtro
+está certo em agir, mas quem busca "banco central" recebe pouco. É limite da
+recuperação léxica, e é parte do que a busca semântica da mudança 07 existe para
+cobrir.
+
+**Por que não se conserta com o limiar.** A varredura de 0,10 a 0,50 sobre o
+conjunto de avaliação não tem joelho: de 0,15 a 0,50 ganham-se 7 termos úteis ao
+custo de 28 de ruído, em progressão sem ponto de inflexão. Distribuição sem vão
+não se conserta movendo a linha de corte.
+
+## 7. O caminho de ausência envelhece com o catálogo
+
+**O que acontece.** Três das 14 perguntas de avaliação estão anotadas com
+`nenhum` — não há resposta no catálogo. Com 505 fichas as três retornavam vazio
+e contavam como acerto. Com 19.958 as três retornam resultados, e contam como
+erro.
+
+**Mas não é ruído.** "quantos hospitais tem na minha cidade" devolve
+`hospitais-e-leitos` com pontuação 23,6, casando em `hospitais`. "quanto ganha um
+professor em média no Brasil" devolve `indicadores-educacionais-da-educao-bsica`
+com 17,2. São conjuntos que não existiam na amostra de 505 e agora existem.
+
+**Consequência para a medição.** A queda de recall@5 de 57,1% para 35,7% ao
+passar de 505 para 19.958 fichas é, em três de três casos, exatamente essas
+perguntas mudando de acerto para erro — 8 acertos viraram 5, e as três que
+mudaram são as três de ausência. A recuperação não piorou; a anotação envelheceu.
+
+**O que fazer.** As anotações `nenhum` precisam de revisão humana contra o
+catálogo completo. Decidir se `hospitais-e-leitos` responde "quantos hospitais
+tem na minha cidade" é curadoria, não medição, e o conjunto de avaliação é
+curado à mão de propósito.

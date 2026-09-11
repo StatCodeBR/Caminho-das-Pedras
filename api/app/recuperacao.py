@@ -21,6 +21,15 @@ from typing import Any
 
 COLUNAS = ("nome", "perguntas", "resumo", "orgao", "tags")
 
+# Colunas de texto natural, usadas para medir se um termo é comum demais. `tags`
+# fica de fora: ali estão os rótulos do vocabulário controlado de temas, e
+# contá-los faz a frequência medir a nossa classificação em vez do uso da
+# língua — `financas` valia 40,2% do corpus com 100% disso vindo de tags.
+#
+# Precisa acompanhar `pipeline/indexa.py`: se os dois divergirem, a produção
+# recupera diferente do que a avaliação mede, e essa falha não dá alarme.
+COLUNAS_MEDIDAS = tuple(c for c in COLUNAS if c != "tags")
+
 PESOS_PADRAO: dict[str, float] = {
     "nome": 3.0,
     "perguntas": 4.0,
@@ -73,9 +82,16 @@ def _literal(palavra: str) -> str:
     return f'"{palavra.replace(chr(34), chr(34) * 2)}"'
 
 
+def _so_texto_natural(palavra: str) -> str:
+    """Restringe o casamento às colunas escritas por gente, não por rótulo."""
+    return f"{{{' '.join(COLUNAS_MEDIDAS)}}} : {_literal(palavra)}"
+
+
 def frequencia(conexao: sqlite3.Connection, palavra: str) -> int:
+    """Em quantas fichas a palavra aparece no texto natural. Ver COLUNAS_MEDIDAS."""
     return conexao.execute(
-        "SELECT count(*) FROM ficha_fts WHERE ficha_fts MATCH ?", (_literal(palavra),)
+        "SELECT count(*) FROM ficha_fts WHERE ficha_fts MATCH ?",
+        (_so_texto_natural(palavra),),
     ).fetchone()[0]
 
 

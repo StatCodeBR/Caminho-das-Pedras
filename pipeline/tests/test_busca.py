@@ -257,6 +257,79 @@ def test_filtro_desligado_em_corpus_pequeno(conexao):
     assert busca.descartar_comuns(conexao, ["hospital", "creches"]) == ["hospital", "creches"]
 
 
+# --- a coluna de tags não vota em quem é palavra banal --------------------
+
+
+@pytest.fixture
+def corpus_com_tema_carimbado(tmp_path):
+    """60 fichas com o mesmo rótulo de tema, e o assunto real em duas delas.
+
+    Reproduz o defeito medido no catálogo completo: `financas` aparecia em 40,2%
+    das fichas com 100% dessas ocorrências vindas da coluna de tags, porque é ali
+    que a indexação escreve o vocabulário controlado de temas. O termo é de
+    assunto — o que o cidadão digita — e o filtro o descartava por artefato
+    nosso.
+    """
+    fichas = [
+        {
+            "id": str(i),
+            "nome": f"conjunto-{i}",
+            "titulo": f"Conjunto {i}",
+            "resumo": f"Registro do assunto {i}.",
+            "perguntas": [f"onde acho o assunto {i}?"],
+            "confianca": "alta",
+            "tags": [{"name": "economia"}],
+        }
+        for i in range(60)
+    ]
+    # Só nestas duas a palavra foi escrita por gente, e não carimbada por tema.
+    fichas[0]["resumo"] = "Séries de economia do banco central."
+    fichas[1]["perguntas"] = ["como anda a economia?"]
+    caminho = _banco(tmp_path, fichas)
+    conexao = busca.abrir_banco(caminho)
+    yield conexao
+    conexao.close()
+
+
+def test_rotulo_de_tema_nao_torna_o_termo_comum(corpus_com_tema_carimbado):
+    # Em 60 de 60 fichas pela tag, em 2 pelo texto natural. Vale o texto.
+    assert busca.frequencia(corpus_com_tema_carimbado, "economia") == 2
+    assert busca.descartar_comuns(corpus_com_tema_carimbado, ["onde", "economia"]) == [
+        "economia"
+    ]
+
+
+def test_termo_comum_no_texto_natural_continua_descartado(corpus_com_tema_carimbado):
+    # "assunto" está no resumo das 60: comum de verdade, e some da consulta.
+    assert "assunto" not in busca.descartar_comuns(
+        corpus_com_tema_carimbado, ["assunto", "economia"]
+    )
+
+
+def test_busca_por_termo_de_tema_recupera(corpus_com_tema_carimbado):
+    # O ponto da mudança: a pergunta que antes voltava vazia agora responde.
+    resultados = busca.buscar(corpus_com_tema_carimbado, "onde acho economia")
+    # "1" na frente de "0" porque ali a palavra está numa pergunta de exemplo,
+    # que pesa 4.0, contra o resumo, que pesa 1.0.
+    assert [r.conjunto_id for r in resultados[:2]] == ["1", "0"]
+
+
+def test_tag_continua_indexada_e_buscavel(tmp_path):
+    # Excluir a coluna da *medição* não pode excluí-la da *recuperação*.
+    caminho = _banco(
+        tmp_path,
+        [{"id": "1", "nome": "conjunto-um", "resumo": "Sem menção ao tema.",
+          "confianca": "alta", "tags": [{"name": "saneamento"}]}],
+    )
+    conexao = busca.abrir_banco(caminho)
+    try:
+        resultados = busca.buscar(conexao, "saneamento")
+        assert [r.conjunto_id for r in resultados] == ["1"]
+        assert "tags" in resultados[0].casados
+    finally:
+        conexao.close()
+
+
 # --- explicação ----------------------------------------------------------
 
 
