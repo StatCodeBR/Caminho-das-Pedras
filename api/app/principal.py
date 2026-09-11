@@ -42,6 +42,14 @@ def _preparar_semantica() -> None:
     if not vetores_em.exists() and not ids_em.exists():
         _motivo_semantica = "vetores ausentes"
         return
+    if not semantica.runtime_disponivel():
+        # Vetores sem o runtime que vetoriza a pergunta: a semântica se diria
+        # ativa e quebraria na primeira consulta, com ImportError. O fastembed
+        # fica fora da imagem até a fusão; quem instala vetores instala o grupo.
+        raise RuntimeError(
+            f"há vetores em {vetores_em.parent}, mas o runtime da busca semântica "
+            "não está instalado: uv sync --group semantica"
+        )
     try:
         conexao = banco.abrir(config.banco)
     except banco.CatalogoIndisponivel:

@@ -45,6 +45,17 @@ BLOCO = 1024 * 1024
 _registrado = False
 
 
+def runtime_disponivel() -> bool:
+    """O fastembed está instalado?
+
+    Ele mora num grupo opcional e fica fora da imagem enquanto a busca semântica
+    está desligada em produção. Quem instala vetores precisa instalá-lo junto.
+    """
+    import importlib.util
+
+    return importlib.util.find_spec("fastembed") is not None
+
+
 def _registrar() -> None:
     global _registrado
     if _registrado:

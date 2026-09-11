@@ -19,7 +19,10 @@ WORKDIR /app
 # Dependências antes do código: mudar um arquivo do app não invalida a camada
 # de instalação, que é a cara.
 COPY api/pyproject.toml api/uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# Só as dependências do projeto, sem grupo nenhum — nem `dev`, nem `semantica`.
+# O runtime da busca semântica entra na imagem com a fusão (mudança 08); até lá
+# ela está desligada em produção e ele seria peso morto.
+RUN uv sync --frozen --no-default-groups --no-install-project
 
 COPY api/app ./app
 

@@ -101,3 +101,25 @@ def test_metade_dos_artefatos_impede_a_subida(ambiente):
     with pytest.raises(semantica.IndiceInconsistente, match="não encontrados"):
         with _cliente():
             pass
+
+
+# --- runtime opcional ----------------------------------------------------
+
+
+def test_vetores_sem_runtime_impedem_a_subida(ambiente, monkeypatch):
+    """Vetores presentes e fastembed ausente: a semântica se diria ativa e
+    quebraria na primeira consulta. Melhor não subir."""
+    catalogo, vetores = ambiente
+    _gravar(catalogo, vetores)
+    monkeypatch.setattr(semantica, "runtime_disponivel", lambda: False)
+    with pytest.raises(RuntimeError, match="runtime da busca semântica"):
+        with _cliente():
+            pass
+
+
+def test_sem_vetores_e_sem_runtime_sobe(ambiente, monkeypatch):
+    # É o caso da imagem de produção até a mudança 08.
+    monkeypatch.setattr(semantica, "runtime_disponivel", lambda: False)
+    with _cliente() as cliente:
+        estado = cliente.get("/saude").json()["busca_semantica"]
+    assert estado == {"ativa": False, "motivo": "vetores ausentes"}

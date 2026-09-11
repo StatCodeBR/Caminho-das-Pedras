@@ -7,7 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.4.0",
     "fastapi>=0.141.1",
-    "fastembed>=0.8.0",
     "numpy>=2.5.3",
     "pydantic-settings>=2.15.0",
     "uvicorn>=0.52.4",
@@ -19,6 +18,17 @@ dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
 ]
+# O runtime da busca semântica fica fora da imagem de produção até a fusão
+# (mudança 08): sem vetores ela está desligada, e ele somaria onnxruntime,
+# tokenizers e pillow que nada usa. Localmente vem por padrão, porque o teste
+# de paridade precisa dele. O numpy não entra aqui: é ele que lê os vetores, e
+# o serviço o importa na subida.
+semantica = [
+    "fastembed>=0.8.0",
+]
+
+[tool.uv]
+default-groups = ["dev", "semantica"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

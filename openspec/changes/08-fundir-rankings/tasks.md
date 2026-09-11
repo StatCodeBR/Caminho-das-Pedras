@@ -10,6 +10,8 @@ isso e precisa ser emendada antes da implementação.
 - [ ] Publicar `vectors.npy` e `vectors.json` na release, com soma própria no
       `catalogo.json`
 - [ ] Baixar e conferir os vetores no build da imagem, como já se faz com o banco
+- [ ] Instalar o grupo `semantica` (fastembed) na imagem: ele saiu dela enquanto
+      a semântica estava desligada, e o serviço recusa subir com vetores e sem ele
 - [ ] Levar o modelo ONNX (470 MB) para a imagem no build, sem download em
       tempo de resposta
 - [ ] Tornar os vetores obrigatórios no serviço: ausentes, ele não sobe
