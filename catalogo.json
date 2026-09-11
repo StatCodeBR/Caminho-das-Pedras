@@ -1,0 +1,16 @@
+{
+  "versao": "catalogo-2026-09-11",
+  "origem": "https://github.com/StatCodeBR/Caminho-das-Pedras/releases/download/catalogo-2026-09-11/dados.db.gz",
+  "arquivo": "dados.db.gz",
+  "sha256": "7b734105683f98ac3506299eecf47fbebf79d3ac2b167e5f8d2d620d295866a7",
+  "bytes": 35502098,
+  "bytes_descomprimido": 185970688,
+  "publicado_em": "2026-09-11T15:17:08+00:00",
+  "gerado_em": "2026-09-10T17:44:29+00:00",
+  "conjuntos": 19958,
+  "recursos": 124820,
+  "fichas": 19958,
+  "modelos": [
+    "anthropic/claude-haiku-4-5"
+  ]
+}

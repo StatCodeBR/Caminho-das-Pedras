@@ -191,3 +191,23 @@ mudaram são as três de ausência. A recuperação não piorou; a anotação en
 catálogo completo. Decidir se `hospitais-e-leitos` responde "quantos hospitais
 tem na minha cidade" é curadoria, não medição, e o conjunto de avaliação é
 curado à mão de propósito.
+
+## 8. O histórico do Git ainda carrega os bancos antigos
+
+**O que acontece.** O `dados.db` saiu do rastreio e o catálogo passou a ser
+distribuído como release. Isso impede o repositório de **continuar** crescendo,
+mas não desfaz o que já está lá: as versões commitadas antes da mudança 13
+seguem no histórico, e um `git clone` as baixa todas.
+
+**Por que não foi reescrito.** Reescrever histórico de repositório já publicado
+invalida todo clone existente e todo commit referenciado em qualquer lugar — e o
+ganho é espaço em disco, não correção. O peso já foi pago; o que importava era
+parar a hemorragia.
+
+**Quando revisitar.** Se o clone ficar lento a ponto de atrapalhar, aí vale um
+`git filter-repo` planejado, com aviso a quem tiver clone e reescrita em uma
+janela combinada. Até lá é custo conhecido, não defeito.
+
+**O que não muda.** Nada disso afeta o que a imagem serve: ela baixa a release
+declarada no `catalogo.json` e confere a soma. O histórico é peso de clone, não
+fonte de catálogo.

@@ -57,6 +57,27 @@ dados-full:
     cd pipeline && uv run python enriquece.py
     cd pipeline && uv run python indexa.py
 
+# --- catálogo ------------------------------------------------------------
+
+# Comprime o banco e grava o catalogo.json com a soma. Não publica nada, não
+# fala com a rede: serve para conferir o manifesto antes de assumir compromisso.
+catalogo:
+    cd pipeline && uv run python publica.py
+
+# Publica a release e atualiza o catalogo.json. Exige GITHUB_TOKEN com escrita
+# em releases, e recusa se a árvore do Git estiver suja — publicar de árvore
+# suja gravaria um manifesto descrevendo código que não está em lugar nenhum.
+#
+# Depois disto, commite o catalogo.json: é o commit que registra qual catálogo
+# a imagem passa a servir.
+catalogo-publica:
+    cd pipeline && uv run python publica.py --publicar
+
+# Baixa o catálogo declarado no catalogo.json para uso local, conferindo a soma.
+# É o que alguém roda depois de clonar, em vez de rodar o pipeline inteiro.
+catalogo-baixa:
+    cd api && uv run python obter_catalogo.py ../catalogo.json ../pipeline/dados/dados.db
+
 # --- qualidade -----------------------------------------------------------
 
 avalia:

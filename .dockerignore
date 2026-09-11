@@ -1,23 +1,42 @@
-# O ambiente de desenvolvimento é NixOS: .venv e node_modules carregam caminhos
-# absolutos do /nix/store e quebram dentro de uma imagem Debian. Eles nunca
-# entram — as dependências são instaladas na build.
+# O que não precisa viajar até o daemon do Docker a cada build.
+#
+# Sem isto o contexto levava mais de 400 MB: o `dados.db` de 186 MB, o JSONL
+# bruto de 155 MB e o cache de fichas de 83 MB. Nenhum deles entra em imagem
+# alguma — o catálogo agora vem da release, conferido pela soma.
+
+# Artefatos do pipeline. O `.gz` fica de fora desta lista de propósito: é o que
+# o escape de desenvolvimento usa, via --build-arg CATALOGO_LOCAL.
+pipeline/dados/*.db
+pipeline/dados/*.db-journal
+pipeline/dados/*.db-wal
+pipeline/dados/*.db-shm
+pipeline/dados/*.npy
+pipeline/bruto/
+pipeline/cache/
+pipeline/quarentena.jsonl
+
+# Ambientes locais. Contêm caminhos do /nix/store e quebram dentro da imagem.
+.direnv/
 **/.venv/
 **/node_modules/
 **/__pycache__/
 **/.pytest_cache/
 **/.ruff_cache/
-
-# Artefatos de build do SvelteKit, refeitos dentro da imagem
 web/.svelte-kit/
 web/build/
 
-# JSONL bruto e cache do enriquecimento: pesados e desnecessários em produção.
-# O dados.db entra explicitamente no Dockerfile da api.
-pipeline/bruto/
-pipeline/cache/
-pipeline/dados/*.db-journal
-
-.git/
-.direnv/
-*.bak
+# Segredos e estado local. O compose carrega o .env do host por conta própria;
+# copiá-lo para dentro da imagem o gravaria numa camada, para sempre.
 .env
+.env.*
+!.env.example
+estado/
+
+*.bak
+.git/
+.github/
+openspec/
+docs/
+avaliacao/
+*.md
+!README.md

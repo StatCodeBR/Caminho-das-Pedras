@@ -37,5 +37,6 @@ limitação 7: são exatamente as três perguntas anotadas com `nenhum`, que com
 fichas retornavam vazio e com 19.958 retornam conjuntos pertinentes. 8 acertos
 viraram 5, e os 3 perdidos são os 3 de ausência.
 
-- [ ] Revisar as anotações `nenhum` contra o catálogo completo — curadoria
-      humana, fora do escopo desta mudança
+- [x] Revisar as anotações `nenhum` contra o catálogo completo — curadoria
+      humana, feita em 2026-09-11: duas reanotadas, `quantos professores tem no
+      Brasil` mantida como ausência deliberada

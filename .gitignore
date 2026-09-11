@@ -35,6 +35,9 @@ pipeline/dados/*.db-journal
 pipeline/dados/*.db-wal
 pipeline/dados/*.db-shm
 pipeline/dados/*.npy
+# O artefato comprimido que vai para a release. Ele é o que *não* deve estar
+# aqui: versioná-lo seria exatamente o problema que a release resolve.
+pipeline/dados/*.gz
 
 # Modelos baixados
 .cache/fastembed/
