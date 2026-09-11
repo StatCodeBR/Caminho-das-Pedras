@@ -179,3 +179,58 @@ def test_gravar_execucao_acrescenta(tmp_path):
     avalia.gravar_execucao(caminho, {"recall@5": 0.2})
     assert len(caminho.read_text(encoding="utf-8").strip().splitlines()) == 2
     assert avalia.ler_ultima(caminho)["recall@5"] == 0.2
+
+
+# --- anotação quebrada impede a medição ---------------------------------
+
+
+def _catalogo_minimo(caminho):
+    import sqlite3
+
+    conexao = sqlite3.connect(caminho)
+    conexao.executescript(
+        """
+        CREATE TABLE conjunto (id TEXT PRIMARY KEY, nome TEXT, titulo TEXT, organizacao TEXT);
+        CREATE TABLE ficha (conjunto_id TEXT PRIMARY KEY, modelo TEXT, confianca TEXT,
+                            resumo TEXT);
+        CREATE VIRTUAL TABLE ficha_fts USING fts5(
+            conjunto_id UNINDEXED, nome, perguntas, resumo, orgao, tags);
+        INSERT INTO conjunto VALUES ('1', 'hospitais-e-leitos', 'Hospitais e Leitos', 'ms');
+        INSERT INTO ficha VALUES ('1', 'prov/m', 'alta', 'hospitais do brasil');
+        """
+    )
+    conexao.commit()
+    conexao.close()
+    return caminho
+
+
+def _rodar(tmp_path, anotacao):
+    from typer.testing import CliRunner
+
+    perguntas = tmp_path / "perguntas.csv"
+    perguntas.write_text(
+        "pergunta,termo_que_funcionou,conjuntos_aceitaveis,tema,dificuldade,portal_encontrou\n"
+        f"quantos hospitais tem na minha cidade,,{anotacao},saude,media,nao\n",
+        encoding="utf-8",
+    )
+    historico = tmp_path / "historico.jsonl"
+    resultado = CliRunner().invoke(
+        avalia.app,
+        ["--banco", str(_catalogo_minimo(tmp_path / "dados.db")),
+         "--perguntas", str(perguntas), "--historico", str(historico)],
+    )
+    return resultado, historico
+
+
+def test_anotacao_quebrada_impede_a_medicao_e_o_registro(tmp_path):
+    # A grafia que a planilha produz: inicial maiúscula. O portal distingue caixa.
+    resultado, historico = _rodar(tmp_path, "Hospitais-e-leitos")
+    assert resultado.exit_code == 2
+    assert not historico.exists()
+    assert "Hospitais-e-leitos" in resultado.output
+
+
+def test_anotacoes_validas_medem_e_registram(tmp_path):
+    resultado, historico = _rodar(tmp_path, "hospitais-e-leitos")
+    assert resultado.exit_code == 0, resultado.output
+    assert len(historico.read_text(encoding="utf-8").splitlines()) == 1

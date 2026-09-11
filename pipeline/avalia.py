@@ -289,7 +289,6 @@ def imprimir_relatorio(
     avaliadas: list[Avaliada],
     geral: Metricas,
     anterior: dict[str, Any] | None,
-    quebradas: list[str],
     recuperacao: str = "lexica",
 ) -> None:
     log("")
@@ -330,12 +329,6 @@ def imprimir_relatorio(
                     log(f"      {posicao}. {slug}  —  {titulo[:52]}")
             else:
                 log("      (a busca não retornou nada)")
-
-    if quebradas:
-        log("")
-        log(f"  anotações que não existem no banco ({len(quebradas)})")
-        for slug in quebradas:
-            log(f"    · {slug}")
 
     if anterior:
         delta = geral.recall[5] - anterior.get("recall@5", 0.0)
@@ -397,6 +390,22 @@ def main(
         if not lista:
             log("nenhuma pergunta no conjunto de avaliação")
             raise typer.Exit(code=2)
+
+        # Anotação que não resolve mede recall baixo por erro de digitação, não
+        # por falha da busca, e o número sai com cara de regressão real. Antes
+        # isto só aparecia no fim do relatório, depois de o número contaminado
+        # já estar no histórico — e a planilha corrompeu os mesmos slugs quatro
+        # vezes. Conferir antes de medir é o que impede isso.
+        quebradas = anotacoes_ausentes(conexao, lista)
+        if quebradas:
+            log(f"{len(quebradas)} anotação(ões) em {perguntas.name} não existem no banco:")
+            for slug in quebradas:
+                log(f"  · {slug}")
+            log("")
+            log("a avaliação não roda com anotação quebrada: o número mediria erro de")
+            log("digitação, não a busca, e nada é gravado no histórico. Confira")
+            log("maiúsculas, hífens duplos e prefixos colados — ver avaliacao/README.md.")
+            raise typer.Exit(code=2)
         buscar: Callable[[sqlite3.Connection, str, int], list[Any]] | None = None
         indice: Any = None
         if recuperacao == "semantica":
@@ -419,13 +428,12 @@ def main(
 
         avaliadas = avaliar(conexao, lista, buscar)
         geral = medir(avaliadas)
-        quebradas = anotacoes_ausentes(conexao, lista)
         versao = versao_da_recuperacao(conexao, recuperacao, indice)
     finally:
         conexao.close()
 
     anterior = ler_ultima(historico, recuperacao)
-    imprimir_relatorio(avaliadas, geral, anterior, quebradas, recuperacao)
+    imprimir_relatorio(avaliadas, geral, anterior, recuperacao)
 
     if registrar:
         gravar_execucao(

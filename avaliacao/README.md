@@ -7,8 +7,8 @@ catálogo que as respondem. É o que mede se a recuperação melhorou ou piorou.
 
 **Edite em editor de texto. Nunca em LibreOffice, Excel ou Google Sheets.**
 
-A planilha reescreve os slugs em silêncio, e já corrompeu os mesmos três campos
-três vezes. Os estragos observados:
+A planilha reescreve os slugs em silêncio, e já corrompeu os mesmos campos
+quatro vezes. Os estragos observados:
 
 | o que a planilha faz | exemplo |
 |---|---|
@@ -25,8 +25,11 @@ Pior: a corrupção é silenciosa. Um slug que não resolve mede recall baixo po
 erro de digitação, não por falha da busca, e o número parece uma regressão real.
 Na última vez foram 11 anotações quebradas de uma só edição.
 
-Os arquivos `.ods` e `.bak` deste diretório são resquício desse fluxo e **não são
-fonte de verdade**. O `perguntas.csv` é.
+Por isso o `avalia.py` confere as anotações **antes** de medir e se recusa a
+rodar — sem gravar nada no histórico — se alguma não existir no banco.
+
+O `perguntas.ods` saiu do repositório: era dele que a edição saía estragada. O
+`perguntas.csv` é a única fonte de verdade.
 
 ## Antes de confiar numa medição
 
@@ -40,7 +43,8 @@ print(avalia.anotacoes_ausentes(con, avalia.ler_perguntas(avalia.ARQUIVO_PERGUNT
 ```
 
 Lista vazia é o esperado. Qualquer slug ali significa que o número da avaliação
-está medindo anotação quebrada. O `avalia.py` também reporta isso no relatório.
+está medindo anotação quebrada. O `avalia.py` faz a mesma conferência sozinho
+e para antes de medir.
 
 ## Arquivos
 
