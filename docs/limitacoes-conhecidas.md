@@ -106,19 +106,39 @@ em 18, essa pergunta sairia por correspondência direta: uma resposta confiante,
 montada da ficha, sobre um conjunto que não traz salário nenhum.
 
 **Consequência para o roteamento.** O caminho de template não tem como julgar
-pertinência: ele confia na pontuação. Por isso o limiar ficou em 20 e o
-roteamento favorece o modelo — das 14 perguntas de avaliação, 12 vão ao modelo e
-só 2 saem por template, ambas corretas. É mais caro e é o certo: gastar token à
-toa custa centavos, servir resposta confiante e errada custa a confiança.
+pertinência: ele confia na pontuação. Na amostra de 505 fichas isso se contornava
+com um limiar de 20, e das 14 perguntas 12 iam ao modelo e 2 saíam por template,
+ambas corretas.
+
+**No catálogo completo essa calibração ruiu.** Com 19.958 fichas as pontuações
+subiram, mais conjuntos ultrapassam 20, e o template passou a disparar sobre
+casamento acidental: "minha cidade já teve enchente registrada" era respondida,
+sem chamar o modelo, com um conjunto de depósitos de patentes por cidade — que
+casou em "cidade". Remedido, nenhum limiar resolve:
+
+| limiar | templates | certos | errados |
+|---:|---:|---:|---:|
+| 20 | 5 | 2 | 3 |
+| 25 | 2 | 1 | 1 |
+| 30 | 1 | 0 | 1 |
+| 35 | 0 | 0 | 0 |
+
+A pontuação não separa certo de errado: os acertos vão de 18,2 a 29,7 e os erros
+de 14,6 a 33,0 — a maior pontuação das catorze é um erro. A margem sobre o
+segundo também não separa. O limiar ficou em 35, acima de qualquer pontuação
+observada, o que na prática desliga o template neste catálogo. É mais caro e é o
+certo: gastar token à toa custa centavos, servir resposta confiante e errada
+custa a confiança.
 
 **Onde isso é tratado.** No prompt de resposta, que instrui explicitamente a
 dizer que não encontrou quando as fichas não respondem — inclusive com o exemplo
 do conjunto sobre hospitais que não traz a contagem pedida. É julgamento, e só o
 modelo pode fazê-lo.
 
-**Limitação da calibração.** O limiar de 20 foi medido sobre 14 perguntas. É
-amostra pequena demais para ser lei; revisar quando o conjunto de avaliação
-crescer.
+**Limitação da calibração.** Os limiares foram medidos sobre 14 perguntas. É
+amostra pequena demais para ser lei, e o de relevância é pior: 12 foi escolhido
+para excluir uma pontuação observada de 11,7, num único caso — calibração sobre
+n=1 dentro de n=14. Revisar quando o conjunto de avaliação crescer.
 
 ## 5. Os slugs do portal não são deriváveis do título
 

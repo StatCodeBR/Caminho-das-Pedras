@@ -42,20 +42,46 @@ class Configuracao(BaseSettings):
     # primeiro lugar é comum. Servir template para pergunta ambígua entrega uma
     # resposta confiante e errada; gastar token à toa custa centavos.
     #
-    # O limiar é 20 e não 18 por medição, não por gosto: com 18, a pergunta
-    # "quanto ganha um professor em média no Brasil" — que o catálogo não
-    # responde — saía por template, apresentando `indicadores-educacionais` (19,18)
-    # como se fosse a resposta. A pontuação léxica não distingue "é do assunto"
-    # de "responde à pergunta"; só o modelo faz isso. Com 20, sobram as duas
-    # correspondências de fato inequívocas das 14 perguntas.
+    # O limiar era 20, medido sobre as 505 fichas da amostra. No catálogo
+    # completo essa calibração deixou de valer: as pontuações do BM25 subiram,
+    # mais conjuntos ultrapassam 20, e o template passou a disparar sobre
+    # casamento acidental — "minha cidade já teve enchente registrada" era
+    # respondida, sem chamar o modelo, com um conjunto de depósitos de patentes
+    # por cidade, que casou em "cidade".
     #
-    # Calibrado sobre n=14: revisar quando o conjunto de avaliação crescer.
-    limiar_template: float = 20.0
+    # Remedido sobre as 19.958 fichas, e o resultado é que nenhum limiar serve:
+    #
+    #   limiar  templates  certos  errados
+    #     20        5         2       3
+    #     25        2         1       1
+    #     30        1         0       1
+    #     35        0         0       0
+    #
+    # A pontuação não separa certo de errado. Os acertos vão de 18,2 a 29,7 e os
+    # erros de 14,6 a 33,0 — a maior pontuação de todas as catorze é um erro. A
+    # margem sobre o segundo também não separa. Não há corte que preserve os
+    # acertos e elimine os erros.
+    #
+    # Por isso 35: acima de qualquer pontuação observada, o que desliga o caminho
+    # do template neste catálogo. É a escolha que a regra do projeto impõe —
+    # resposta confiante e errada custa confiança, token à toa custa centavos.
+    # Baixar para 25 devolve o template com 50% de precisão, e é decisão de quem
+    # opera, não deste arquivo.
+    limiar_template: float = 35.0
     margem_template: float = 2.0
 
     # Abaixo disto a recuperação não sustenta resposta nenhuma e o serviço diz
     # que não encontrou, em vez de redigir sobre fichas que não vêm ao caso.
-    limiar_relevancia: float = 3.0
+    #
+    # Era 3,0, e no catálogo completo isso nunca disparava: a única pergunta de
+    # avaliação sem resposta — "quantos professores tem no Brasil" — ia ao
+    # modelo, que gastava token para dizer que não encontrou. Com 12 ela sai por
+    # ausência, sem custo, e nenhuma outra das catorze é afetada.
+    #
+    # Ressalva honesta: 12 foi escolhido para excluir uma pontuação observada de
+    # 11,7, num único caso. É calibração sobre n=1 dentro de n=14, e a primeira
+    # coisa a revisar quando o conjunto de avaliação crescer.
+    limiar_relevancia: float = 12.0
 
     # Fusão dos rankings. `k` é o valor consagrado do RRF: grande demais achata
     # as contribuições e aproxima a fusão de uma votação simples, pequeno demais
