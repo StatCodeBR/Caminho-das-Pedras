@@ -12,6 +12,7 @@ from app import banco, geracao, guarda, redacao
 from app.configuracao import Configuracao, configuracao
 from app.recuperacao import Recuperado, Recurso, buscar
 from app.roteamento import Origem, decidir
+from tests.conftest import gravar_vetores
 
 
 # --- apoio ---------------------------------------------------------------
@@ -129,6 +130,8 @@ def conexao(catalogo):
 def cliente(catalogo, monkeypatch):
     configuracao.cache_clear()
     monkeypatch.setenv("BANCO", str(catalogo))
+    # A busca semântica é obrigatória desde a fusão: sem vetores a app não sobe.
+    monkeypatch.setenv("VETORES", str(gravar_vetores(catalogo, catalogo.parent)))
     monkeypatch.setenv("MODO_STUB", "1")
     # Com duas fichas e o termo numa delas, o IDF do BM25 é log(1,5/1,5) = 0 e a
     # pontuação sai exatamente 0,0 — o BM25 dizendo, corretamente, que num corpus
@@ -440,6 +443,7 @@ def cliente_contido(catalogo, tmp_path, monkeypatch):
     cfg.cache_clear()
     principal._contencao = None
     monkeypatch.setenv("BANCO", str(catalogo))
+    monkeypatch.setenv("VETORES", str(gravar_vetores(catalogo, catalogo.parent)))
     monkeypatch.setenv("MODO_STUB", "1")
     monkeypatch.setenv("LIMIAR_RELEVANCIA", "0.0")
     monkeypatch.setenv("ESTADO_DIR", str(tmp_path / "estado"))

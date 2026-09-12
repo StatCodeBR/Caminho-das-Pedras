@@ -57,6 +57,18 @@ class Configuracao(BaseSettings):
     # que não encontrou, em vez de redigir sobre fichas que não vêm ao caso.
     limiar_relevancia: float = 3.0
 
+    # Fusão dos rankings. `k` é o valor consagrado do RRF: grande demais achata
+    # as contribuições e aproxima a fusão de uma votação simples, pequeno demais
+    # faz o primeiro lugar de cada ranking dominar. A profundidade é quantos
+    # candidatos pedir a cada ranking antes de fundir, maior que o retorno de
+    # propósito — truncar cedo elimina o conjunto que aparece em décimo nos dois,
+    # que é o que a fusão existe para encontrar.
+    rrf_k: float = 60.0
+    # Medida, não convencionada: com 50 o recall@5 da fusão cai para 64,3% e com
+    # 10 sobe para 78,6%, porque dois lugares medianos somam mais que um primeiro
+    # lugar isolado. Ver pipeline/fusao.py, que traz a tabela inteira.
+    profundidade_busca: int = 10
+
     # Estado gravável da contenção. Separado do dados.db, que é somente leitura
     # por decisão da mudança 09 e não pode virar gravável para isto.
     estado_dir: Path = RAIZ / "estado"

@@ -146,6 +146,11 @@ class Recuperado:
     # — a data dos dados falta em cerca de um quinto do catálogo.
     dados_atualizados_em: str | None = None
     metadados_atualizados_em: str | None = None
+    # Proveniência, preenchida pela fusão: ranking de origem -> posição nele, e
+    # ranking de origem -> pontuação na escala dele. Vazios quando o resultado
+    # vem de um ranking só, sem fusão.
+    origens: dict[str, int] = field(default_factory=dict)
+    pontuacoes: dict[str, float] = field(default_factory=dict)
 
     @property
     def url_portal(self) -> str:

@@ -21,6 +21,28 @@ que aparece em décimo lugar nos dois rankings costuma ser melhor que um primeir
 colocado em apenas um deles — e truncar cedo demais elimina justamente esses
 casos, que são o motivo de fundir.
 
+Medido, porém, o "bem mais" tem limite:
+
+| profundidade | recall@5 | recall@10 | MRR |
+|---:|---:|---:|---:|
+| 5 | 71,4% | 78,6% | 0,419 |
+| **10** | **78,6%** | **78,6%** | **0,530** |
+| 20 | 71,4% | 78,6% | 0,524 |
+| 50 | 64,3% | 71,4% | 0,478 |
+
+O padrão ficou em 10, e não nos 50 que a convenção sugere. A causa é aritmética:
+com profundidade 50, dois lugares medianos somam mais que um primeiro lugar
+isolado — `1/88 + 1/71` supera `1/61` —, e a fusão premia o que os dois rankings
+acharam morno sobre o que um deles acertou em cheio. Foi o que aconteceu com "a
+água que chega na minha casa é boa": os conjuntos do SISAGUA, primeiros na
+léxica, perderam para uma projeção de uso de água que estava em 28º e 11º.
+
+O `k` foi varrido junto e quase não influi: 10 e 60 dão o mesmo recall, com MRR
+de 0,542 contra 0,530. Fica no valor consagrado, como o design previa.
+
+Calibrado sobre n=14, como o limiar do roteamento: revisar quando o conjunto de
+avaliação crescer.
+
 ## Decisão: proveniência preservada
 
 Cada resultado carrega de quais rankings veio e em que posição. Isso serve a três

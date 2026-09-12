@@ -63,11 +63,15 @@ def _cliente() -> TestClient:
     return TestClient(app)
 
 
-def test_sem_vetores_sobe_com_a_semantica_desligada(ambiente):
-    with _cliente() as cliente:
-        saude = cliente.get("/saude").json()
-    assert saude["ok"] is True
-    assert saude["busca_semantica"] == {"ativa": False, "motivo": "vetores ausentes"}
+def test_sem_vetores_o_servico_nao_sobe(ambiente):
+    """Desde a fusão a semântica entra em toda resposta.
+
+    Subir sem ela responderia só com a léxica, no mesmo formato e sem sinal
+    nenhum de que metade da recuperação sumiu.
+    """
+    with pytest.raises(RuntimeError, match="obrigatória"):
+        with _cliente():
+            pass
 
 
 def test_vetores_coerentes_ligam_a_semantica(ambiente):
@@ -117,9 +121,19 @@ def test_vetores_sem_runtime_impedem_a_subida(ambiente, monkeypatch):
             pass
 
 
-def test_sem_vetores_e_sem_runtime_sobe(ambiente, monkeypatch):
-    # É o caso da imagem de produção até a mudança 08.
-    monkeypatch.setattr(semantica, "runtime_disponivel", lambda: False)
-    with _cliente() as cliente:
-        estado = cliente.get("/saude").json()["busca_semantica"]
-    assert estado == {"ativa": False, "motivo": "vetores ausentes"}
+def test_modelo_indisponivel_impede_a_subida(ambiente, monkeypatch):
+    """O modelo entra no build. Se faltar, o serviço quebraria na primeira
+    pergunta — que é o pior momento para descobrir."""
+    from app import principal
+
+    catalogo, vetores = ambiente
+    _gravar(catalogo, vetores)
+
+    class SemModelo:
+        def consulta(self, _texto):
+            raise RuntimeError("modelo não encontrado no cache")
+
+    monkeypatch.setattr(principal, "construir_vetorizador", SemModelo)
+    with pytest.raises(RuntimeError, match="modelo de consulta"):
+        with _cliente():
+            pass

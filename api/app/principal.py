@@ -9,14 +9,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import banco, geracao, guarda, redacao, semantica, telemetria
+from . import banco, fusao, geracao, guarda, redacao, semantica, telemetria
 from .configuracao import configuracao
 from .limites import Contencao
 from .recuperacao import Recuperado, buscar
@@ -29,19 +30,30 @@ from .roteamento import Origem, decidir
 # nenhum, e a fusão trataria esse erro como resultado.
 _semantica: semantica.Indice | None = None
 _motivo_semantica = "não inicializada"
+_vetorizador: semantica.Vetorizador | None = None
+
+# Fábrica do vetorizador, isolada para o teste poder injetar um substituto:
+# carregar o modelo de verdade em cada teste que sobe a app custaria segundos e
+# não mediria nada que a suíte se proponha a medir.
+construir_vetorizador = semantica.Vetorizador
 
 
 def _preparar_semantica() -> None:
-    global _semantica, _motivo_semantica
+    global _semantica, _motivo_semantica, _vetorizador
     config = configuracao()
     vetores_em = config.vetores
     ids_em = vetores_em.with_suffix(".json")
     _semantica = None
-    # Nenhum dos dois arquivos: a semântica não foi instalada, e isso é estado
-    # legítimo. Só um deles: artefato órfão — `carregar` recusa, como deve.
+    _vetorizador = None
+    # Desde a fusão, a busca semântica é obrigatória: ela entra em toda resposta,
+    # e um serviço que subisse sem ela responderia só com a léxica, no mesmo
+    # formato, sem sinal nenhum de que metade da recuperação sumiu.
     if not vetores_em.exists() and not ids_em.exists():
-        _motivo_semantica = "vetores ausentes"
-        return
+        raise RuntimeError(
+            f"a busca semântica é obrigatória e os vetores não foram encontrados "
+            f"em {vetores_em.parent}: a imagem precisa baixá-los da release, ou "
+            f"o desenvolvimento precisa rodar `just vetores`"
+        )
     if not semantica.runtime_disponivel():
         # Vetores sem o runtime que vetoriza a pergunta: a semântica se diria
         # ativa e quebraria na primeira consulta, com ImportError. O fastembed
@@ -62,6 +74,16 @@ def _preparar_semantica() -> None:
         _semantica = semantica.carregar(conexao, vetores_em, ids_em)
     finally:
         conexao.close()
+    _vetorizador = construir_vetorizador()
+    try:
+        # Aquece o modelo na subida. Se ele não estiver na imagem, o serviço não
+        # pode subir anunciando a busca semântica ativa — ele quebraria na
+        # primeira pergunta, que é o pior momento para descobrir.
+        _vetorizador.consulta("aquecer o modelo")
+    except Exception as erro:  # noqa: BLE001 — qualquer falha aqui impede subir
+        raise RuntimeError(
+            f"o modelo de consulta não está disponível na imagem: {erro}"
+        ) from erro
     _motivo_semantica = "ativa"
 
 
@@ -143,6 +165,9 @@ def _resumo_das_fichas(fichas: list[Recuperado]) -> list[dict]:
             "confianca": f.confianca,
             "url_portal": f.url_portal,
             "pontuacao": round(f.pontuacao, 3),
+            # De qual ranking veio e em que posição. É o que permite à
+            # camada Confira explicar por que o conjunto apareceu.
+            "origens": f.origens,
             # Sempre presentes como chave, mesmo quando nulas: omitir obrigaria
             # a interface a adivinhar se a data falta ou se o campo sumiu.
             "dados_atualizados_em": f.dados_atualizados_em,
@@ -159,6 +184,49 @@ def _resumo_das_fichas(fichas: list[Recuperado]) -> list[dict]:
         }
         for f in fichas
     ]
+
+
+def _falha_de_ranking(nome: str, erro: Exception) -> None:
+    """Meia recuperação responde; meia recuperação silenciosa esconde o defeito."""
+    print(f"ranking {nome} falhou nesta consulta: {erro}", file=sys.stderr, flush=True)
+
+
+async def _recuperar(
+    conexao: sqlite3.Connection, pergunta: str, config: Any
+) -> list[Recuperado]:
+    """Funde os rankings léxico e semântico, cada um na sua thread.
+
+    Cada ranking recebe a própria conexão: elas rodam em paralelo, e uma
+    conexão do SQLite não é para ser usada por duas threads ao mesmo tempo.
+    Abrir a segunda custa muito menos que a busca que ela serve.
+    """
+
+    def lexico(limite: int) -> list[Recuperado]:
+        return buscar(conexao, pergunta, limite)
+
+    semantico = None
+    conexao_semantica = None
+    if _semantica is not None and _vetorizador is not None:
+        conexao_semantica = banco.abrir(config.banco)
+
+        def semantico(limite: int) -> list[Recuperado]:
+            return semantica.buscar(
+                conexao_semantica, _semantica, _vetorizador, pergunta, limite
+            )
+
+    try:
+        return await fusao.buscar(
+            pergunta,
+            config.fichas_no_contexto,
+            lexica=lexico,
+            semantica=semantico,
+            profundidade=config.profundidade_busca,
+            k=config.rrf_k,
+            registrar=_falha_de_ranking,
+        )
+    finally:
+        if conexao_semantica is not None:
+            conexao_semantica.close()
 
 
 async def _responder(pergunta: str, reduzido: bool = False) -> AsyncIterator[str]:
@@ -183,7 +251,7 @@ async def _responder(pergunta: str, reduzido: bool = False) -> AsyncIterator[str
             medicao.registrar()
             yield _evento("erro", {"mensagem": "O catálogo não está disponível agora."})
             return
-        recuperados = buscar(conexao, pergunta, config.fichas_no_contexto)
+        recuperados = await _recuperar(conexao, pergunta, config)
     finally:
         conexao.close()
 

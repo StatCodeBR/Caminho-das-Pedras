@@ -46,7 +46,7 @@ LIMIAR_REGRESSAO = 0.05
 
 # As recuperações que a avaliação sabe medir. Cada uma se compara só consigo
 # mesma no histórico: a diferença entre elas é de método, não regressão.
-RECUPERACOES = ("lexica", "semantica")
+RECUPERACOES = ("lexica", "semantica", "hibrida")
 
 
 def log(mensagem: object) -> None:
@@ -265,12 +265,17 @@ def versao_da_recuperacao(
         "fichas": fichas,
         "modelos": modelos,
     }
-    if recuperacao == "semantica" and indice is not None:
+    if recuperacao in ("semantica", "hibrida") and indice is not None:
         versao["modelo_embedding"] = indice.modelo
         versao["versao_vetores"] = indice.versao[:16]
-    else:
+    if recuperacao in ("lexica", "hibrida"):
         versao["pesos"] = busca.pesos()
         versao["fatores"] = busca.fatores()
+    if recuperacao == "hibrida":
+        import fusao
+
+        versao["rrf_k"] = fusao.rrf_k()
+        versao["profundidade"] = fusao.profundidade()
     return versao
 
 
@@ -408,10 +413,11 @@ def main(
             raise typer.Exit(code=2)
         buscar: Callable[[sqlite3.Connection, str, int], list[Any]] | None = None
         indice: Any = None
-        if recuperacao == "semantica":
+        if recuperacao in ("semantica", "hibrida"):
             # Import tardio: a avaliação léxica não deve pagar a carga do numpy,
             # e muito menos a do modelo.
             import embeddings
+            import fusao
             import semantica
 
             try:
@@ -424,7 +430,12 @@ def main(
             def _semantica(con: sqlite3.Connection, texto: str, limite: int) -> list[Any]:
                 return semantica.buscar(con, indice, vetorizador, texto, limite)
 
-            buscar = _semantica
+            def _hibrida(con: sqlite3.Connection, texto: str, limite: int) -> list[Any]:
+                return fusao.buscar(
+                    con, texto, limite, lexica=busca.buscar, semantica=_semantica
+                )
+
+            buscar = _semantica if recuperacao == "semantica" else _hibrida
 
         avaliadas = avaliar(conexao, lista, buscar)
         geral = medir(avaliadas)

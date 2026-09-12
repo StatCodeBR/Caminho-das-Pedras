@@ -19,10 +19,10 @@ WORKDIR /app
 # Dependências antes do código: mudar um arquivo do app não invalida a camada
 # de instalação, que é a cara.
 COPY api/pyproject.toml api/uv.lock ./
-# Só as dependências do projeto, sem grupo nenhum — nem `dev`, nem `semantica`.
-# O runtime da busca semântica entra na imagem com a fusão (mudança 08); até lá
-# ela está desligada em produção e ele seria peso morto.
-RUN uv sync --frozen --no-default-groups --no-install-project
+# Sem o grupo `dev`, com o grupo `semantica`: a fusão consome a busca semântica
+# em toda resposta, então o runtime que vetoriza a pergunta deixou de ser peso
+# morto e passou a ser requisito.
+RUN uv sync --frozen --no-default-groups --group semantica --no-install-project
 
 COPY api/app ./app
 
@@ -36,26 +36,47 @@ COPY api/app ./app
 # A versão é fixa, nunca "a mais recente" — reconstruir este commit amanhã
 # precisa produzir a mesma imagem.
 #
-# Para desenvolver sem publicar release:
-#   docker build --build-arg CATALOGO_LOCAL=pipeline/dados/dados.db.gz ...
-# Nesse caminho a soma não é conferida, e o padrão continua sendo o publicado.
+# São dois artefatos, com soma própria cada um: o banco e o pacote dos vetores
+# da busca semântica. Os dois vêm da mesma release, e é isso que impede servir
+# vetor de uma versão do catálogo sobre o banco de outra.
+#
+# Para desenvolver sem publicar release, os dois precisam ser indicados:
+#   docker build --build-arg CATALOGO_LOCAL=pipeline/dados/dados.db.gz \
+#                --build-arg VETORES_LOCAIS=pipeline/dados/vetores.tar.gz ...
+# Indicar só um falha de propósito: misturaria banco local com vetores da
+# release. Nesse caminho a soma não é conferida, e o padrão continua sendo o
+# publicado, para que o descuido leve ao caminho seguro.
 ARG CATALOGO_LOCAL=""
+ARG VETORES_LOCAIS=""
 
 COPY catalogo.json /tmp/catalogo.json
 COPY api/obter_catalogo.py /tmp/obter_catalogo.py
-# O `.` cobre os dois casos: sem CATALOGO_LOCAL o COPY não traz nada além do
-# que já está no contexto, e o script decide pelo build-arg.
-COPY ${CATALOGO_LOCAL:-catalogo.json} /tmp/local/
+# O padrão cobre o caso sem artefato local: o COPY não traz nada além do que já
+# está no contexto, e o script decide pelos build-args.
+COPY ${CATALOGO_LOCAL:-catalogo.json} ${VETORES_LOCAIS:-catalogo.json} /tmp/local/
 
-RUN CAMINHO=""; \
+RUN BANCO_LOCAL=""; VET_LOCAIS=""; \
     if [ -n "$CATALOGO_LOCAL" ]; then \
-        CAMINHO="/tmp/local/$(basename "$CATALOGO_LOCAL")"; \
+        BANCO_LOCAL="/tmp/local/$(basename "$CATALOGO_LOCAL")"; \
     fi; \
-    python /tmp/obter_catalogo.py /tmp/catalogo.json /dados/dados.db "$CAMINHO" \
+    if [ -n "$VETORES_LOCAIS" ]; then \
+        VET_LOCAIS="/tmp/local/$(basename "$VETORES_LOCAIS")"; \
+    fi; \
+    python /tmp/obter_catalogo.py /tmp/catalogo.json /dados/dados.db \
+        "$BANCO_LOCAL" "$VET_LOCAIS" \
     && rm -rf /tmp/local /tmp/obter_catalogo.py /tmp/catalogo.json
 
 ENV BANCO=/dados/dados.db \
+    VETORES=/dados/vectors.npy \
+    FASTEMBED_CACHE_PATH=/modelo \
     PATH="/app/.venv/bin:$PATH"
+
+# O modelo entra no build, não na primeira pergunta. Baixá-lo em tempo de
+# resposta faria a resposta depender do Hugging Face estar de pé, custaria
+# dezenas de segundos à primeira consulta de cada container, e poria em produção
+# um arquivo que o build nunca viu. Aqui ele é baixado uma vez e fica na camada.
+RUN python -c "from app import semantica; semantica.Vetorizador().consulta('aquecer o cache')" \
+    && du -sh /modelo
 
 EXPOSE 8000
 

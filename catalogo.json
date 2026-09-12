@@ -1,16 +1,28 @@
 {
   "versao": "catalogo-2026-09-11",
-  "origem": "https://github.com/StatCodeBR/Caminho-das-Pedras/releases/download/catalogo-2026-09-11/dados.db.gz",
-  "arquivo": "dados.db.gz",
-  "sha256": "7b734105683f98ac3506299eecf47fbebf79d3ac2b167e5f8d2d620d295866a7",
-  "bytes": 35502098,
-  "bytes_descomprimido": 185970688,
-  "publicado_em": "2026-09-11T15:17:08+00:00",
+  "publicado_em": "2026-09-12T00:42:22+00:00",
   "gerado_em": "2026-09-10T17:44:29+00:00",
   "conjuntos": 19958,
   "recursos": 124820,
   "fichas": 19958,
   "modelos": [
     "anthropic/claude-haiku-4-5"
-  ]
+  ],
+  "modelo_embedding": "intfloat/multilingual-e5-small",
+  "vetores": 19958,
+  "assets": {
+    "banco": {
+      "arquivo": "dados.db.gz",
+      "origem": "https://github.com/StatCodeBR/Caminho-das-Pedras/releases/download/catalogo-2026-09-11/dados.db.gz",
+      "sha256": "7b734105683f98ac3506299eecf47fbebf79d3ac2b167e5f8d2d620d295866a7",
+      "bytes": 35502098,
+      "bytes_descomprimido": 185970688
+    },
+    "vetores": {
+      "arquivo": "vetores.tar.gz",
+      "origem": "https://github.com/StatCodeBR/Caminho-das-Pedras/releases/download/catalogo-2026-09-11/vetores.tar.gz",
+      "sha256": "e836d9c30a2d17fffe1099ae7e04c2730ce1a083f14ba354eb4b5de06ff61a49",
+      "bytes": 28593457
+    }
+  }
 }
