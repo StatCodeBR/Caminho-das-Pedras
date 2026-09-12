@@ -17,9 +17,17 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MODO_STUB: ${MODO_STUB:-0}
       MODELO: ${MODELO:-claude-haiku-4-5}
-      LIMIAR_TEMPLATE: ${LIMIAR_TEMPLATE:-20.0}
-      MARGEM_TEMPLATE: ${MARGEM_TEMPLATE:-2.0}
-      LIMIAR_RELEVANCIA: ${LIMIAR_RELEVANCIA:-3.0}
+      # Os limiares de roteamento não estão aqui de propósito. Eles são
+      # resultado de medição sobre o conjunto de avaliação, e medição pertence
+      # ao repositório: o padrão vive em `api/app/configuracao.py`, junto da
+      # tabela que o justifica. Repetir os números aqui criava duas fontes de
+      # verdade, e elas divergiram — o compose fixava 20 e 3 enquanto o código
+      # já dizia 35 e 12, e o ambiente vence o padrão. A produção rodou semanas
+      # com a calibração da amostra de 505 fichas sem ninguém notar.
+      #
+      # Para sobrepor deliberadamente, defina LIMIAR_TEMPLATE, MARGEM_TEMPLATE
+      # ou LIMIAR_RELEVANCIA no ambiente do serviço. Não os declare vazios: o
+      # serviço não converte "" em número e não sobe.
       # Contenção de consumo. O teto nunca produz erro: ao estourar, as
       # respostas passam a sair por template.
       ESTADO_DIR: /estado
