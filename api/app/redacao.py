@@ -8,6 +8,7 @@ confere o que estamos dizendo.
 
 from __future__ import annotations
 
+from . import recuperacao
 from .recuperacao import Recuperado
 
 MAX_RECURSOS_MOSTRADOS = 6
@@ -32,10 +33,15 @@ def _linha_recurso(recurso) -> str:
     if recurso.formato:
         partes.append(f"[{recurso.formato.upper()}]")
     texto = " ".join(partes)
-    if not recurso.disponivel:
+    if recurso.situacao == recuperacao.INACESSIVEL:
         # O recurso continua listado: ele existe no catálogo e a pessoa tem
         # direito de saber que existe e está fora do ar.
         return f"- {texto} — link fora do ar quando verificamos"
+    if recurso.situacao == recuperacao.NAO_VERIFICADO:
+        # Não dizemos que caiu, porque não sabemos. E não culpamos o órgão: a
+        # informação que temos é sobre o nosso acesso, não sobre o arquivo.
+        alerta = "não conseguimos verificar este link"
+        return f"- {texto} — {alerta}: {recurso.link}" if recurso.link else f"- {texto} — {alerta}"
     if recurso.link:
         return f"- {texto} — {recurso.link}"
     return f"- {texto}"

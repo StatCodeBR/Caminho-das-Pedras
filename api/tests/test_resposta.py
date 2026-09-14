@@ -8,7 +8,7 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
-from app import banco, geracao, guarda, redacao
+from app import banco, geracao, guarda, recuperacao, redacao
 from app.configuracao import Configuracao, configuracao
 from app.recuperacao import Recuperado, Recurso, buscar
 from app.roteamento import Origem, decidir
@@ -190,10 +190,64 @@ def test_recupera_por_termo(conexao):
 
 
 def test_recurso_indisponivel_aparece_sinalizado_nao_omitido(conexao):
+    """Cenário: conjunto com recurso removido."""
     item = buscar(conexao, "dengue")[0]
     assert len(item.recursos) == 2
-    assert [r.disponivel for r in item.recursos] == [True, False]
-    assert any(not r.disponivel for r in item.recursos)
+    assert [r.situacao for r in item.recursos] == [
+        recuperacao.ACESSIVEL,
+        recuperacao.INACESSIVEL,
+    ]
+
+
+@pytest.mark.parametrize(
+    "classe, esperada",
+    [
+        ("disponivel", recuperacao.ACESSIVEL),
+        # Cenário: recurso cujo servidor não envia a cadeia de certificação.
+        # O navegador busca o intermediário sozinho e o arquivo baixa; alertar
+        # aqui descreveria a nossa ferramenta, não o link.
+        ("cadeia_incompleta", recuperacao.ACESSIVEL),
+        ("indisponivel", recuperacao.INACESSIVEL),
+        ("dominio_inexistente", recuperacao.INACESSIVEL),
+        # Cenário: recurso em host que recusa o verificador. Não afirmamos que
+        # o arquivo sumiu, porque não conseguimos olhar.
+        ("bloqueado", recuperacao.NAO_VERIFICADO),
+        ("instavel", recuperacao.NAO_VERIFICADO),
+        ("nao_verificado", recuperacao.NAO_VERIFICADO),
+    ],
+)
+def test_cada_classe_de_saude_tem_tratamento_declarado(classe, esperada):
+    assert recuperacao.situacao_do_recurso(classe) == esperada
+
+
+def test_classe_desconhecida_nao_vira_link_verificado():
+    """Cenário: classe de saúde desconhecida pela API.
+
+    Catálogo mais novo que este código não pode fazer o cidadão ler um link
+    como conferido. Era assim que a derivação por exclusão errava.
+    """
+    assert recuperacao.situacao_do_recurso("classe-que-ainda-nao-existe") == (
+        recuperacao.NAO_VERIFICADO
+    )
+
+
+def test_catalogo_sem_verificacao_de_saude_nao_ganha_ressalva():
+    """Cenário: catálogo sem verificação de saúde.
+
+    Ausência de classe é catálogo não verificado, não link suspeito.
+    """
+    assert recuperacao.situacao_do_recurso(None) == recuperacao.ACESSIVEL
+    assert recuperacao.situacao_do_recurso("") == recuperacao.ACESSIVEL
+
+
+def test_ordem_apresenta_o_que_abre_primeiro_e_o_morto_por_ultimo():
+    """Cenário: preferência por recursos disponíveis."""
+    assert recuperacao.ORDEM_DA_SITUACAO[recuperacao.ACESSIVEL] < (
+        recuperacao.ORDEM_DA_SITUACAO[recuperacao.NAO_VERIFICADO]
+    )
+    assert recuperacao.ORDEM_DA_SITUACAO[recuperacao.NAO_VERIFICADO] < (
+        recuperacao.ORDEM_DA_SITUACAO[recuperacao.INACESSIVEL]
+    )
 
 
 def test_consulta_vazia_nao_recupera_nada(conexao):
@@ -516,3 +570,29 @@ def test_operacao_expoe_consumo(cliente_contido):
     assert d["teto"] == 1
     assert d["limite_por_origem"] == 2
     assert "consumo" in d and "modo_reduzido" in d
+
+
+def test_template_nao_diz_fora_do_ar_para_link_nao_verificado():
+    """A ressalva não pode virar afirmação de remoção.
+
+    Dizer 'fora do ar' sobre um link que não conseguimos abrir seria afirmar o
+    que não medimos — e, no caso de host que nos bloqueia, o arquivo costuma
+    estar no ar para quem clica.
+    """
+    item = Recuperado("9", 1, 9.0, "x", "X", "orgao", "alta", "resumo")
+    item.recursos = [
+        Recurso("Painel", "https://exemplo.gov.br/painel.csv", "csv",
+                recuperacao.NAO_VERIFICADO)
+    ]
+    texto = redacao.montar_template(item)
+
+    assert "fora do ar" not in texto
+    assert "não conseguimos verificar" in texto
+    # O link continua sendo oferecido: pode muito bem abrir.
+    assert "https://exemplo.gov.br/painel.csv" in texto
+
+
+def test_prompt_distingue_indisponivel_de_nao_verificado():
+    prompt = geracao.carregar_prompt()
+    assert "não conseguimos verificar" in prompt.lower()
+    assert "Nunca diga que esses links estão fora do ar" in prompt

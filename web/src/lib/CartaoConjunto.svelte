@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { descreverAtualizacao, formatosDe, nomeDoOrgao, recursosVisiveis } from './apresentacao';
+	import {
+		RESSALVA_DA_SITUACAO,
+		descreverAtualizacao,
+		formatosDe,
+		nomeDoOrgao,
+		recursosVisiveis
+	} from './apresentacao';
 	import type { Conjunto } from './tipos';
 
 	let { conjunto }: { conjunto: Conjunto } = $props();
@@ -7,7 +13,9 @@
 	const atualizacao = $derived(descreverAtualizacao(conjunto));
 	const formatos = $derived(formatosDe(conjunto));
 	const lista = $derived(recursosVisiveis(conjunto));
-	const indisponiveis = $derived(conjunto.recursos.filter((r) => !r.disponivel).length);
+	const indisponiveis = $derived(
+		conjunto.recursos.filter((r) => r.situacao === 'inacessivel').length
+	);
 </script>
 
 <article
@@ -44,13 +52,20 @@
 		<ul class="mt-3 space-y-1 text-sm">
 			{#each lista.visiveis as recurso (recurso.titulo + recurso.link)}
 				<li class="break-words">
-					{#if recurso.disponivel && recurso.link}
+					{#if recurso.situacao !== 'inacessivel' && recurso.link}
 						<a
 							class="text-sky-700 underline underline-offset-2 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300"
 							href={recurso.link}
 							rel="noopener noreferrer"
 							target="_blank">{recurso.titulo || 'arquivo sem nome'}</a
 						>
+						<!-- O link continua clicável: não conseguimos conferir, e ele
+						     provavelmente abre. Riscá-lo afirmaria o que não medimos. -->
+						{#if recurso.situacao === 'nao_verificado'}
+							<span class="text-xs text-slate-500 dark:text-slate-400">
+								— {RESSALVA_DA_SITUACAO.nao_verificado}
+							</span>
+						{/if}
 					{:else}
 						<span class="text-slate-500 line-through dark:text-slate-500">
 							{recurso.titulo || 'arquivo sem nome'}
@@ -58,7 +73,7 @@
 						<!-- O recurso não some: ele foi catalogado, e quem procura tem
 						     direito de saber que existe e não está acessível. -->
 						<span class="text-xs text-amber-700 dark:text-amber-500">
-							— link fora do ar quando verificamos
+							— {RESSALVA_DA_SITUACAO.inacessivel}
 						</span>
 					{/if}
 				</li>

@@ -77,9 +77,9 @@ describe('formatosDe', () => {
 	it('reúne formatos sem repetir, em maiúsculas', () => {
 		const c = conjunto({
 			recursos: [
-				{ titulo: 'a', link: 'l', formato: 'csv', disponivel: true },
-				{ titulo: 'b', link: 'l', formato: 'CSV', disponivel: true },
-				{ titulo: 'c', link: 'l', formato: 'json', disponivel: false }
+				{ titulo: 'a', link: 'l', formato: 'csv', situacao: 'acessivel' as const },
+				{ titulo: 'b', link: 'l', formato: 'CSV', situacao: 'acessivel' as const },
+				{ titulo: 'c', link: 'l', formato: 'json', situacao: 'inacessivel' as const }
 			]
 		});
 		expect(formatosDe(c)).toEqual(['CSV', 'JSON']);
@@ -101,18 +101,20 @@ describe('nomeDoOrgao', () => {
 });
 
 describe('recursosVisiveis', () => {
-	it('põe os disponíveis primeiro sem omitir os que estão fora do ar', () => {
+	it('põe os que abrem primeiro sem omitir os que estão fora do ar', () => {
 		const c = conjunto({
 			recursos: [
-				{ titulo: 'morto', link: 'l', formato: 'csv', disponivel: false },
-				{ titulo: 'vivo', link: 'l2', formato: 'csv', disponivel: true }
+				{ titulo: 'morto', link: 'l', formato: 'csv', situacao: 'inacessivel' as const },
+				{ titulo: 'incerto', link: 'l3', formato: 'csv', situacao: 'nao_verificado' as const },
+				{ titulo: 'vivo', link: 'l2', formato: 'csv', situacao: 'acessivel' as const }
 			]
 		});
 		const { visiveis, ocultos } = recursosVisiveis(c);
-		expect(visiveis.map((r) => r.titulo)).toEqual(['vivo', 'morto']);
+		// O que não conseguimos conferir fica no meio: não é promessa nem lápide.
+		expect(visiveis.map((r) => r.titulo)).toEqual(['vivo', 'incerto', 'morto']);
 		// O indisponível continua na lista: foi catalogado, e quem procura tem
 		// direito de saber que existe e não abre.
-		expect(visiveis).toHaveLength(2);
+		expect(visiveis).toHaveLength(3);
 		expect(ocultos).toBe(0);
 	});
 
@@ -122,7 +124,7 @@ describe('recursosVisiveis', () => {
 				titulo: `r${i}`,
 				link: 'l',
 				formato: 'csv',
-				disponivel: true
+				situacao: 'acessivel' as const
 			}))
 		});
 		const { visiveis, ocultos } = recursosVisiveis(c);
@@ -133,8 +135,8 @@ describe('recursosVisiveis', () => {
 	it('não altera a lista original', () => {
 		const c = conjunto({
 			recursos: [
-				{ titulo: 'morto', link: 'l', formato: 'csv', disponivel: false },
-				{ titulo: 'vivo', link: 'l2', formato: 'csv', disponivel: true }
+				{ titulo: 'morto', link: 'l', formato: 'csv', situacao: 'inacessivel' as const },
+				{ titulo: 'vivo', link: 'l2', formato: 'csv', situacao: 'acessivel' as const }
 			]
 		});
 		recursosVisiveis(c);

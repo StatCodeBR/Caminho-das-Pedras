@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from typing import AsyncIterator, Iterable
 
+from . import recuperacao
 from .recuperacao import Recuperado
 
 RAIZ = Path(__file__).resolve().parent
@@ -33,10 +34,18 @@ def carregar_prompt() -> str:
     return ARQUIVO_PROMPT.read_text(encoding="utf-8")
 
 
+# O modelo precisa saber o que NÃO foi verificado, ou preencheria a lacuna
+# afirmando disponibilidade que ninguém mediu.
+MARCA_DA_SITUACAO = {
+    recuperacao.INACESSIVEL: "  [INDISPONÍVEL na última verificação]",
+    recuperacao.NAO_VERIFICADO: "  [NÃO FOI POSSÍVEL VERIFICAR este link]",
+}
+
+
 def _descrever_recursos(item: Recuperado) -> list[str]:
     linhas: list[str] = []
     for recurso in item.recursos[:MAX_RECURSOS_NO_CONTEXTO]:
-        marca = "" if recurso.disponivel else "  [INDISPONÍVEL na última verificação]"
+        marca = MARCA_DA_SITUACAO.get(recurso.situacao, "")
         formato = f" ({recurso.formato.upper()})" if recurso.formato else ""
         link = f" — {recurso.link}" if recurso.link else ""
         linhas.append(f"    - {recurso.titulo or '(sem título)'}{formato}{link}{marca}")

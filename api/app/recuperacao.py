@@ -120,12 +120,23 @@ def _data(bruto: Any) -> str | None:
     return texto or None
 
 
+# O que a resposta afirma sobre um link. Três valores porque booleano não
+# expressa "não consegui verificar", que é justamente a distinção que importa:
+# dizer que um link está fora do ar sem ter conseguido olhar é afirmar o que não
+# se mediu.
+ACESSIVEL = "acessivel"
+INACESSIVEL = "inacessivel"
+NAO_VERIFICADO = "nao_verificado"
+
+SITUACOES = (ACESSIVEL, NAO_VERIFICADO, INACESSIVEL)
+
+
 @dataclass
 class Recurso:
     titulo: str
     link: str
     formato: str
-    disponivel: bool
+    situacao: str
 
 
 @dataclass
@@ -214,15 +225,47 @@ def buscar(
     return recuperados
 
 
-# Classes que o verificador de saúde grava. `None` significa não checado, que
-# não é o mesmo que quebrado — link sem checagem é apresentado normalmente.
-INDISPONIVEIS = ("indisponivel",)
+# Cada classe de saúde tem um tratamento declarado, e não derivado por exclusão.
+# A exclusão é o defeito que a mudança 09 corrigiu: com `disponivel = classe not
+# in INDISPONIVEIS`, qualquer classe nova chegava ao cidadão como link
+# verificado — inclusive `dominio_inexistente`, que é domínio que deixou de
+# existir.
+#
+# `cadeia_incompleta` é apresentada sem ressalva de propósito: o servidor não
+# manda o certificado intermediário, o navegador busca sozinho e o arquivo
+# baixa. Alertar ali descreveria a nossa ferramenta, não o link.
+SITUACAO_POR_CLASSE = {
+    "disponivel": ACESSIVEL,
+    "cadeia_incompleta": ACESSIVEL,
+    "indisponivel": INACESSIVEL,
+    "dominio_inexistente": INACESSIVEL,
+    "bloqueado": NAO_VERIFICADO,
+    "instavel": NAO_VERIFICADO,
+    "nao_verificado": NAO_VERIFICADO,
+}
+
+# Ordem de apresentação: o que abre primeiro, o que não sabemos depois, o que
+# está fora do ar por último.
+ORDEM_DA_SITUACAO = {situacao: i for i, situacao in enumerate(SITUACOES)}
+
+
+def situacao_do_recurso(classe: str | None) -> str:
+    """Traduz a classe de saúde no que a resposta pode afirmar.
+
+    Sem classe é catálogo sem verificação de saúde: apresenta normalmente, e a
+    resposta não afirma que o link foi conferido. Classe que a API não conhece é
+    outra coisa — é catálogo mais novo que este código, e aí a única afirmação
+    honesta é que não sabemos.
+    """
+    if not classe:
+        return ACESSIVEL
+    return SITUACAO_POR_CLASSE.get(classe, NAO_VERIFICADO)
 
 
 def carregar_recursos(
     conexao: sqlite3.Connection, recuperados: list[Recuperado]
 ) -> None:
-    """Anexa os recursos de cada conjunto, disponíveis primeiro.
+    """Anexa os recursos de cada conjunto, os que abrem primeiro.
 
     Recurso com link morto não some: ele aparece marcado. Esconder seria
     enganoso, porque o dado foi catalogado e o cidadão tem direito de saber que
@@ -241,9 +284,9 @@ def carregar_recursos(
                 titulo=(linha["titulo"] or "").strip(),
                 link=(linha["link"] or "").strip(),
                 formato=(linha["formato"] or "").strip(),
-                disponivel=linha["classe"] not in INDISPONIVEIS,
+                situacao=situacao_do_recurso(linha["classe"]),
             )
             for linha in linhas
         ]
-        recursos.sort(key=lambda r: not r.disponivel)
+        recursos.sort(key=lambda r: ORDEM_DA_SITUACAO[r.situacao])
         item.recursos = recursos

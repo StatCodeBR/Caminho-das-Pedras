@@ -53,3 +53,13 @@ conferir os arquivos na página do portal.
 Alguns arquivos aparecem marcados como indisponíveis. Não os esconda: diga que o
 link estava fora do ar na última verificação e aponte a página do conjunto, onde
 o órgão pode ter republicado.
+
+## Recursos que não conseguimos verificar
+
+Outros aparecem marcados como não verificados. **Não são a mesma coisa.** Ali o
+servidor do órgão recusou a nossa checagem, ou não respondeu a tempo — o arquivo
+pode estar perfeitamente no ar para quem clicar.
+
+Nunca diga que esses links estão fora do ar, e nunca culpe o órgão por eles: o
+que sabemos é sobre o nosso acesso, não sobre o arquivo. Se precisar mencionar,
+diga apenas que não foi possível conferir o link.

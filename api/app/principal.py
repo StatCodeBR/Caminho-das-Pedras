@@ -177,7 +177,7 @@ def _resumo_das_fichas(fichas: list[Recuperado]) -> list[dict]:
                     "titulo": r.titulo,
                     "link": r.link,
                     "formato": r.formato,
-                    "disponivel": r.disponivel,
+                    "situacao": r.situacao,
                 }
                 for r in f.recursos
             ],

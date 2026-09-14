@@ -1,0 +1,45 @@
+{
+  "_comentario": [
+    "Falhas de TLS e de DNS observadas ao vivo no catálogo, com o verify_code",
+    "que o OpenSSL devolveu. O httpx entrega todas como ConnectError; estes são",
+    "os códigos que as separam.",
+    "Os números são gravados porque a alternativa — casar a mensagem do OpenSSL",
+    "por substring — quebraria em silêncio quando o ambiente mudasse, e a quebra",
+    "apareceria como reclassificação em massa, não como erro."
+  ],
+  "observado_em": "2026-09-14",
+  "casos": [
+    {
+      "host": "dadosabertos.iftm.edu.br",
+      "erro": "SSLCertVerificationError",
+      "verify_code": 20,
+      "verify_message": "unable to get local issuer certificate",
+      "classe": "cadeia_incompleta",
+      "nota": "manda o intermediário RNP de 2019; quem assinou a folha foi o de 2025"
+    },
+    {
+      "host": "dados.anvisa.gov.br",
+      "erro": "SSLCertVerificationError",
+      "verify_code": 20,
+      "verify_message": "unable to get local issuer certificate",
+      "classe": "cadeia_incompleta",
+      "nota": "manda só a folha, sem intermediário algum"
+    },
+    {
+      "host": "dadosabertos.ufma.br",
+      "erro": "SSLCertVerificationError",
+      "verify_code": 10,
+      "verify_message": "certificate has expired",
+      "classe": "instavel",
+      "nota": "certificado vencido é defeito do servidor, não cadeia faltando"
+    },
+    {
+      "host": "dados.mj.gov.br",
+      "erro": "gaierror",
+      "errno": -2,
+      "verify_message": "Name or service not known",
+      "classe": "dominio_inexistente",
+      "nota": "814 recursos; o domínio do Ministério da Justiça deixou de resolver"
+    }
+  ]
+}

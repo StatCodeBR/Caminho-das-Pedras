@@ -231,3 +231,86 @@ janela combinada. Até lá é custo conhecido, não defeito.
 **O que não muda.** Nada disso afeta o que a imagem serve: ela baixa a release
 declarada no `catalogo.json` e confere a soma. O histórico é peso de clone, não
 fonte de catálogo.
+
+---
+
+## 9. O verificador de saúde tem um ponto cego que ele não pode fechar
+
+**O que acontece.** A varredura completa rodou em 12 de setembro de 2026:
+124.820 recursos, 141.942 requisições, três horas. O resultado, depois da
+mudança 09 separar o que a verificação sustenta do que ela só supunha:
+
+| classe | recursos | |
+|---|---|---|
+| `disponivel` | 99.506 | 79,7% |
+| `cadeia_incompleta` | 6.218 | 5,0% |
+| `indisponivel` | 6.015 | 4,8% |
+| `instavel` | 5.835 | 4,7% |
+| `bloqueado` | 5.520 | 4,4% |
+| `dominio_inexistente` | 1.014 | 0,8% |
+| `nao_verificado` | 712 | 0,6% |
+
+Os 5.520 `bloqueado`, em 214 conjuntos, são o ponto cego: **não sabemos se esses
+arquivos existem.** Três hosts recusam o verificador por completo — 5.290 do
+`cdn.tse.jus.br`, 206 do `dadosabertos.mec.gov.br`, 24 do `www.marinha.mil.br`.
+No TSE, o corpo da resposta identifica a Akamai, e o bloqueio alcança até
+`https://www.tse.jus.br/`, endereço que não está no catálogo e que a varredura
+nunca pediu. Não é reação ao nosso volume: é política contra este cliente.
+
+**Por que não contornamos.** Trocar User-Agent, forjar `Referer` ou distribuir a
+origem faria o verificador se disfarçar em vez de se identificar — e, no TSE, já
+verificamos que nada disso funciona. A postura é a mesma da regra de ancoragem:
+preferimos declarar o que não sabemos a produzir um número que parece
+conhecimento.
+
+**O tamanho do estrago, se ignorássemos isto.** A medição bruta dizia 9,1% de
+links mortos. Quase metade era cegueira nossa: a ausência confirmada é 4,8%.
+Publicar 9,1% seria descrever o catálogo com o dobro da podridão que ele tem.
+
+**O limiar, e o que ele custa.** Um host só é acusado de bloquear com no mínimo
+20 recursos verificados, zero sucessos e maioria de 403. A varredura do limiar
+sobre o catálogo inteiro não mostrou joelho — ele move o total em 0,4% — mas
+move de 3 para 11 o número de hosts acusados. Com mínimo 1, o `doi.org` viraria
+bloqueador por causa de um único 403.
+
+O custo assumido: **`mapa.cultura.gov.br`, com 11 negativas em 11 recursos,
+provavelmente bloqueia e segue contado como ausência confirmada.** Onze recursos
+classificados errado, contra o risco de acusar um host a partir de uma medição.
+
+**O que não muda.** `bloqueado` nunca é apresentado como link bom. Na resposta
+ele recebe ressalva de não verificado, e o prompt do modelo proíbe dizer que
+esses links caíram. O cidadão não é informado de que o arquivo sumiu, nem de que
+está lá — porque nenhuma das duas coisas foi medida.
+
+**Quando revisitar.** Se algum dos três órgãos liberar o verificador — agora que
+o User-Agent traz endereço de contato, dá para pedir —, `--somente-falhas
+--classe bloqueado` reverifica só aqueles recursos, sem tocar no resto.
+
+---
+
+## 10. Cadeia de certificação incompleta é defeito do servidor, e nós o absorvemos
+
+**O que acontece.** 6.218 recursos, em 474 conjuntos, estão em servidores que
+não enviam o certificado intermediário que assinou o próprio certificado. O
+`dadosabertos.iftm.edu.br` manda um intermediário de 2019 quando quem assinou
+foi o de 2025; o `dados.anvisa.gov.br` manda só a folha.
+
+Navegador contorna isso sozinho, buscando o intermediário que falta. Clientes
+estritos — `curl`, e o nosso verificador — não contornam. **Então apresentamos
+esses links sem ressalva alguma**, presumindo que quem clicar vai baixar o
+arquivo.
+
+**Por que é uma limitação, e não uma decisão tranquila.** Essa presunção é sobre
+o navegador do usuário, não sobre o link. Quem consumir o catálogo por script vai
+tropeçar em 6.218 recursos que nós apresentamos como bons. A alternativa —
+alertar todo mundo — descreveria a nossa ferramenta em vez do link, e assustaria
+o cidadão com um problema que ele não vai encontrar.
+
+**Por que não buscamos o intermediário.** Tornaria o verificador mais permissivo
+que clientes estritos e esconderia um defeito real de 25 órgãos. Preferimos
+classificar o defeito a remediá-lo em silêncio.
+
+**O que fica de fora.** Certificado vencido (234 recursos) e nome que não
+corresponde (553) continuam em `instavel` com o motivo registrado. Esses o
+navegador também denuncia, e o usuário vê o aviso — são defeito visível, não
+invisível.

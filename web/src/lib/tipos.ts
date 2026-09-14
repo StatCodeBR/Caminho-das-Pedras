@@ -1,10 +1,17 @@
 /** O que a API entrega no evento final. Espelha o resumo de `api/app/principal.py`. */
 
+/**
+ * O que a resposta afirma sobre um link. Três valores, e não um booleano:
+ * "não consegui verificar" não é "está fora do ar". Dizer que o link caiu sem
+ * ter conseguido olhar seria afirmar o que ninguém mediu.
+ */
+export type Situacao = 'acessivel' | 'nao_verificado' | 'inacessivel';
+
 export type Recurso = {
 	titulo: string;
 	link: string;
 	formato: string;
-	disponivel: boolean;
+	situacao: Situacao;
 };
 
 export type Conjunto = {

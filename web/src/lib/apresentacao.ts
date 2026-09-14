@@ -1,6 +1,23 @@
 /** Traduções da linguagem da API para a de quem vai ler a tela. */
 
-import type { Conjunto, Origem } from './tipos';
+import type { Conjunto, Origem, Situacao } from './tipos';
+
+/** O que abre primeiro; o que não sabemos depois; o que caiu por último. */
+const ORDEM_DA_SITUACAO: Record<Situacao, number> = {
+	acessivel: 0,
+	nao_verificado: 1,
+	inacessivel: 2
+};
+
+/**
+ * O texto da ressalva. `nao_verificado` não acusa o órgão de nada: o que
+ * sabemos ali é sobre o nosso acesso, não sobre o arquivo.
+ */
+export const RESSALVA_DA_SITUACAO: Record<Situacao, string> = {
+	acessivel: '',
+	nao_verificado: 'não conseguimos verificar este link',
+	inacessivel: 'link fora do ar quando verificamos'
+};
 
 const ORIGENS: Record<Origem, string> = {
 	// A API declara nomes que servem à telemetria. Exibir a origem só é
@@ -34,13 +51,15 @@ export const MAX_RECURSOS = 6;
  *
  * Recurso com link morto entra na lista marcado, nunca omitido: ele foi
  * catalogado, e quem procura tem direito de saber que existe e está fora do ar.
+ *
+ * A ordem é: o que abre, o que não conseguimos conferir, o que está fora do ar.
  */
 export function recursosVisiveis(conjunto: Conjunto): {
 	visiveis: Conjunto['recursos'];
 	ocultos: number;
 } {
 	const ordenados = [...conjunto.recursos].sort(
-		(a, b) => Number(b.disponivel) - Number(a.disponivel)
+		(a, b) => ORDEM_DA_SITUACAO[a.situacao] - ORDEM_DA_SITUACAO[b.situacao]
 	);
 	return {
 		visiveis: ordenados.slice(0, MAX_RECURSOS),
